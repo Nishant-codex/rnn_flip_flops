@@ -214,4 +214,4 @@ plt.plot(np.reshape(ground,[-1,3])[:500,1])
 plt.xlabel('hidden_states')
 plt.ylabel('time_steps')
 
-print(predict[0])
+
