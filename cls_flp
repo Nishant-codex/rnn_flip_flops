@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Mar 11 12:09:56 2020
+
+@author: joshi
+"""
+
+graph = setup_model(hyp_dict)
+saver = graph['saver']
+state = None
+data = flip_flop(0.95,3,500, 200)
+feed_dict = {graph['X']:data['inputs'],graph['Y']:data['outputs']}
+sess = tf.Session()
+sess.run(tf.global_variables_initializer())
+saver.restore(sess, '/home/joshi/Downloads/saver/GRU_7000_epochs')
+
+hiddens, outpus, losses = sess.run([graph['hiddens'],graph['predict'],graph['losses']],feed_dict=feed_dict)
+
+
+import time
+from AdaptiveGradNormClip import AdaptiveGradNormClip
+from AdaptiveLearningRate import AdaptiveLearningRate
+# sess = tf.Session()
+x = tf.Variable(hiddens[0,:,:],dtype=tf.float32)
+x_rnn_cell =x
+sample = data['inputs'][0][:,:]
+inputs = tf.constant(sample,dtype=tf.float32)
+# cell = tf.contrib.rnn.GRUCell(hyp_dict['state_size'])
+out,F_cell = graph['cell'](inputs,x)
+# sess_.global_variables_initializer()
+init = tf.variables_initializer(var_list=[x])
+sess.run(init)
+# sess.run(tf.global_variables_initializer())
+q = 0.5 * tf.reduce_sum(tf.square(F_cell-out ))
+
+q_scalar = tf.reduce_mean(q)
+grads = tf.gradients(q_scalar, [x])
+
+
+q_prev_tf = tf.placeholder(tf.float32,
+                            shape=list(q.shape),
+                            name='q_prev')
+
+# when (q-q_prev) is negative, optimization is making progress
+dq = tf.abs(q - q_prev_tf)
+hps={}
+
+# Optimizer
+adaptive_learning_rate = AdaptiveLearningRate(**hps)
+learning_rate = tf.placeholder(tf.float32, name='learning_rate')
+
+adaptive_grad_norm_clip = AdaptiveGradNormClip(hps)
+grad_norm_clip_val = tf.placeholder(tf.float32,
+                                    name='grad_norm_clip_val')
+# Gradient clipping
+clipped_grads, grad_global_norm = tf.clip_by_global_norm(
+    grads, grad_norm_clip_val)
+clipped_grad_global_norm = tf.global_norm(clipped_grads)
+clipped_grad_norm_diff = grad_global_norm - clipped_grad_global_norm
+grads_to_apply = clipped_grads
+
+optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate, **hps)
+train = optimizer.apply_gradients(zip(grads_to_apply, [x]))
+
+# Initialize x and AdamOptimizer's auxiliary variables
+# (very careful not to reinitialize RNN parameters)
+uninitialized_vars = optimizer.variables()
+init = tf.variables_initializer(var_list=uninitialized_vars)
+sess.run(init)
+
+ops_to_eval = [train,x, F_cell, q_scalar, q, dq, grad_global_norm]
+
+iter_count = 1
+t_start = time.time()
+q_prev = np.tile(np.nan, q.shape.as_list())
+rnn_cell_feed_dict = {}
+while True:
+
+    iter_learning_rate = adaptive_learning_rate()
+    iter_clip_val = adaptive_grad_norm_clip()
+
+    feed_dict = {learning_rate: iter_learning_rate,
+                  grad_norm_clip_val: iter_clip_val,
+                  q_prev_tf: q_prev}
+    feed_dict.update(rnn_cell_feed_dict)
+
+    (ev_train,
+    ev_x,
+    ev_F,
+    ev_q_scalar,
+    ev_q,
+    ev_dq,
+    ev_grad_norm) = sess.run(ops_to_eval, feed_dict)
+
+    # if self.super_verbose and \
+    #     np.mod(iter_count, self.n_iters_per_print_update)==0:
+    #     print_update(iter_count, ev_q, ev_dq, iter_learning_rate)
+
+    if iter_count > 1 and \
+        np.all(np.logical_or(
+            ev_dq <  1e-20*iter_learning_rate,
+            ev_q < 1e-12)):
+        '''Here dq is scaled by the learning rate. Otherwise very
+        small steps due to very small learning rates would spuriously
+        indicate convergence. This scaling is roughly equivalent to
+        measuring the gradient norm.'''
+        print('\tOptimization complete to desired tolerance.')
+        break
+
+    if iter_count + 1 > 5000:
+        print('\tMaximum iteration count reached. '
+                                'Terminating.')
+        break
+
+    q_prev = ev_q
+    adaptive_learning_rate.update(ev_q_scalar)
+    adaptive_grad_norm_clip.update(ev_grad_norm)
+    iter_count += 1
+
+iter_count = np.tile(iter_count, ev_q.shape)
+
+# sess.close()
