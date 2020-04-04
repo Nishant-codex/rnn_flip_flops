@@ -3,23 +3,18 @@ from __future__ import division
 from __future__ import print_function
 
 import numpy as np
-#import os
 import sys 
 
-sys.path.insert(0,'/home/joshi/fixed_point_edits')
+sys.path.insert(0,'~/fixed_point_edits')
 import os
 import absl
 from tensorflow.python.ops import parallel_for as pfor
 from FixedPointStore import *
 import tensorflow as tf
 
-#import cProfile
-# %tensorflow_version 1.x magic
-#import matplotlib.pyplot as plt
 import numpy.random as nrand
 
 np.random.seed(0)
-# import numpy as np
 import time
 from AdaptiveGradNormClip import AdaptiveGradNormClip
 from AdaptiveLearningRate import AdaptiveLearningRate
@@ -44,6 +39,7 @@ class FixedPointSearch:
               run_additional_iterations_on_outliers = True,
               outlier_q_scale = 10.0
               ):
+
     self.max_iters = max_iters 
     self.ctype = ctype
     self.tol_q = tol_q
@@ -526,10 +522,6 @@ class FixedPointSearch:
               np.all(np.logical_or(
                   ev_dq < self.tol_dq*iter_learning_rate,
                   ev_q < self.tol_q)):
-              '''Here dq is scaled by the learning rate. Otherwise very
-              small steps due to very small learning rates would spuriously
-              indicate convergence. This scaling is roughly equivalent to
-              measuring the gradient norm.'''
               print('\tOptimization complete to desired tolerance.')
               break
 
