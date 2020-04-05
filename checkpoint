@@ -1,2 +1,0 @@
-model_checkpoint_path: "GRU_2000_epochs"
-all_model_checkpoint_paths: "GRU_2000_epochs"
