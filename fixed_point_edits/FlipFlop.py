@@ -64,6 +64,7 @@ class FlipFlop:
         self.seed = _seed
         self.time = time
         self.bits = bits
+        self.activation = None
         self.num_steps = num_steps
         self.num_steps =num_steps 
         self.batch_size = batch_size 
@@ -79,6 +80,8 @@ class FlipFlop:
         self.l2_loss = l2_loss
         self.c_type = c_type    
         self.sess = 0
+        self.cell = None
+        self.path = None
         self.learning_rate = None
         self.test_data = []
         self.merged_summary_op = 0
@@ -87,6 +90,28 @@ class FlipFlop:
         self.logdir = 0
 
         np.random.seed(self.seed)
+
+    def hps_array(self):
+      arch  = ['Vanilla', 'UGRNN', 'GRU', 'LSTM']
+      activ = ['tanh' , 'relu']
+      units = [64, 128, 256 ]
+      l2_norm = [1e-5, 1e-4, 1e-3, 1e-2]
+      hps_dict = {'arch':arch,
+                  'activ':activ,
+                  'units':units,
+                  'l2_norm':l2_norm}
+    
+      hps_array = []
+    
+      for i in arch:
+        for j in activ:
+          for k in units:
+            for l in l2_norm:
+              hps_array.append({'arch':i,
+                                'activ':j,
+                                'units':k,
+                                'l2_norm':l})
+      return hps_array    
 
     def flip_flop(self, plot=False):
     
@@ -219,17 +244,33 @@ class FlipFlop:
       y = tf.placeholder(tf.float32, [self.batch_size, self.time, self.bits], name='labels_placeholder')
     
       if self.c_type == 'Vanilla':
-        cell = tf.contrib.rnn.BasicRNNCell(self.state_size,reuse=tf.AUTO_REUSE)
-    
+        if self.activation == 'tanh':
+          self.cell = tf.contrib.rnn.BasicRNNCell(self.state_size,reuse=tf.AUTO_REUSE, activation=tf.nn.tanh)
+        else:
+          self.cell = tf.contrib.rnn.BasicRNNCell(self.state_size,reuse=tf.AUTO_REUSE, activation=tf.nn.relu)
+
       if self.c_type == 'GRU':
-        cell = tf.contrib.rnn.GRUCell(self.state_size,reuse=tf.AUTO_REUSE)
-    
+        if self.activation == 'tanh':
+          self.cell = tf.contrib.rnn.GRUCell(self.state_size,reuse=tf.AUTO_REUSE, activation=tf.nn.tanh)
+        else:
+          self.cell = tf.contrib.rnn.GRUCell(self.state_size,reuse=tf.AUTO_REUSE, activation=tf.nn.relu)
+
+      if self.c_type == 'UGRNN':
+        if self.activation == 'tanh':
+          self.cell = tf.contrib.rnn.UGRNN(self.state_size,reuse=tf.AUTO_REUSE, activation=tf.nn.tanh)
+        else:
+          self.cell = tf.contrib.rnn.UGRNN(self.state_size,reuse=tf.AUTO_REUSE, activation=tf.nn.relu)
+
       if self.c_type == 'LSTM':
-        cell = tf.contrib.rnn.LSTMCell(self.state_size,reuse=tf.AUTO_REUSE,state_is_tuple=True)
+        if self.activation == 'tanh':
+          self.cell = tf.contrib.rnn.LSTMCell(self.state_size,reuse=tf.AUTO_REUSE,state_is_tuple=True, activation=tf.nn.tanh)
+        else:
+          self.cell = tf.contrib.rnn.LSTMCell(self.state_size,reuse=tf.AUTO_REUSE,state_is_tuple=True, activation=tf.nn.relu)
+
+
+      init_state = self.cell.zero_state(self.batch_size, dtype=tf.float32)
     
-      init_state = cell.zero_state(self.batch_size, dtype=tf.float32)
-    
-      rnn_outputs, final_state = tf.nn.dynamic_rnn(cell, x, initial_state=init_state,)
+      rnn_outputs, final_state = tf.nn.dynamic_rnn(self.cell, x, initial_state=init_state,)
     
       """
       rnn_outputs gives out rnn hidden states ht which is of the size [batch_size, timestep, state_size]
@@ -271,14 +312,15 @@ class FlipFlop:
               'predict':logits, 
               'init_state':init_state , 
               # 'saver' : tf.train.Saver(),
-              'cell':cell, 
+              'cell':self.cell, 
               'weights':W ,
               # 'config':config
               }
 
     def get_path_for_saving(self):
-      name = str(self.c_type)+'_hps('+str(self.state_size)+'_'+str(self.l2_loss)+')'  
-      dir_name = os.getcwd()+'/'+name+'/'
+
+      name = str(self.c_type)+'_hps_states_'+str(self.state_size)+'_l2_'+str(self.l2_loss)+'_'+str(self.activation)  
+      dir_name = os.getcwd()+'/trained/'+name+'/'
       if not os.path.exists(os.path.dirname(dir_name)):
           os.makedirs(os.path.dirname(dir_name))
       return dir_name 
@@ -365,11 +407,11 @@ class FlipFlop:
       # writer = tf.summary.FileWriter('./graphs')
       # saver = tf.train.Saver()
 
-      path = self.get_path_for_saving()
+      self.path = self.get_path_for_saving()
       if is_root:
-        print(path)
+        print(self.path)
       # config = act['config']
-      checkpoint_dir = path if hvd.rank() == 0 else None
+      checkpoint_dir = self.path if hvd.rank() == 0 else None
       with tf.train.MonitoredTrainingSession(checkpoint_dir=checkpoint_dir,
                                                hooks=hooks,
                                                config=config) as sess:
