@@ -3,18 +3,23 @@ from __future__ import division
 from __future__ import print_function
 
 import numpy as np
+#import os
 import sys 
 
-sys.path.insert(0,'~/fixed_point_edits')
+sys.path.insert(0,'/home/joshi/fixed_point_edits')
 import os
 import absl
 from tensorflow.python.ops import parallel_for as pfor
 from FixedPointStore import *
 import tensorflow as tf
-
+import horovod.tensorflow as hvd
+#import cProfile
+# %tensorflow_version 1.x magic
+#import matplotlib.pyplot as plt
 import numpy.random as nrand
 
 np.random.seed(0)
+# import numpy as np
 import time
 from AdaptiveGradNormClip import AdaptiveGradNormClip
 from AdaptiveLearningRate import AdaptiveLearningRate
@@ -55,6 +60,7 @@ class FixedPointSearch:
     self.rerun_q_outliers = rerun_q_outliers
     self.sampled_states = 0
     self.cell = cell
+    self.is_root = False
     self.uniq_tol = 1e-3
     self.decompose_jacobians = True
     self.compute_jacobians = True
@@ -354,10 +360,10 @@ class FixedPointSearch:
 
     # adam_hps = {'epsilon': 0.01}
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate, **self.adam_optimizer_hps)
+    optimizer = hvd.DistributedOptimizer(optimizer)
     train = optimizer.apply_gradients(zip(grads_to_apply, [x]))
 
     # Initialize x and AdamOptimizer's auxiliary variables
-    # (very careful not to reinitialize RNN parameters)
     uninitialized_vars = optimizer.variables()
     init = tf.variables_initializer(var_list=uninitialized_vars)
     self.sess.run(init)
@@ -386,18 +392,12 @@ class FixedPointSearch:
         ev_dq,
         ev_grad_norm) = self.sess.run(ops_to_eval, feed_dict)
 
-        # if self.super_verbose and \
-        #     np.mod(iter_count, self.n_iters_per_print_update)==0:
-        #     print_update(iter_count, ev_q, ev_dq, iter_learning_rate)
         # print('doing iter count')
         if iter_count > 1 and \
             np.all(np.logical_or(
                 ev_dq < self.tol_dq*iter_learning_rate,
                 ev_q < self.tol_q)):
-            '''Here dq is scaled by the learning rate. Otherwise very
-            small steps due to very small learning rates would spuriously
-            indicate convergence. This scaling is roughly equivalent to
-            measuring the gradient norm.'''
+
             print('\tOptimization complete to desired tolerance.')
             break
 
@@ -412,20 +412,15 @@ class FixedPointSearch:
         iter_count += 1
     # print('outside the loop')
     iter_count = np.tile(iter_count, ev_q.shape)
-    fixed_point = FixedPointStore(
-        # num_states = init_array['num_states'],
-        #                       num_inits = init_array['num_inits'], 
-        #                       num_inputs = init_array['num_inputs'], 
-                              xstar = ev_x,
-                              inputs = inputs,
-                              alloc_zeros = False, 
-                              x_init = states,
-                              F_xstar=ev_F, 
-                              qstar= ev_q,
-                              dq=ev_dq,
-                              n_iters = iter_count
-                              )
-
+    fixed_point = FixedPointStore(xstar = ev_x,
+                                  inputs = inputs,
+                                  alloc_zeros = False, 
+                                  x_init = states,
+                                  F_xstar=ev_F, 
+                                  qstar= ev_q,
+                                  dq=ev_dq,
+                                  n_iters = iter_count
+                                  )
     return fixed_point
 
   def find_shape(self, states):
@@ -468,9 +463,7 @@ class FixedPointSearch:
       # Optimizer
       adaptive_learning_rate = AdaptiveLearningRate(**self.adaptive_learning_rate_hps)
       learning_rate = tf.placeholder(tf.float32, name='learning_rate')
-      # self.adaptive_learning_rate_hps
-      # self.grad_norm_clip_hps
-      # self.adam_optimizer_hps
+
       adaptive_grad_norm_clip = AdaptiveGradNormClip(**self.grad_norm_clip_hps)
       grad_norm_clip_val = tf.placeholder(tf.float32, name='grad_norm_clip_val')
 
@@ -482,10 +475,9 @@ class FixedPointSearch:
 
       # adam_hps = {'epsilon': 0.01}
       optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate, **self.adam_optimizer_hps)
+      optimizer = hvd.DistributedOptimizer(optimizer)
       train = optimizer.apply_gradients(zip(grads_to_apply, [x]))
 
-      # Initialize x and AdamOptimizer's auxiliary variables
-      # (very careful not to reinitialize RNN parameters)
       uninitialized_vars = optimizer.variables()
       init = tf.variables_initializer(var_list=uninitialized_vars)
       self.sess.run(init)
@@ -522,6 +514,10 @@ class FixedPointSearch:
               np.all(np.logical_or(
                   ev_dq < self.tol_dq*iter_learning_rate,
                   ev_q < self.tol_q)):
+              '''Here dq is scaled by the learning rate. Otherwise very
+              small steps due to very small learning rates would spuriously
+              indicate convergence. This scaling is roughly equivalent to
+              measuring the gradient norm.'''
               print('\tOptimization complete to desired tolerance.')
               break
 
@@ -580,7 +576,10 @@ class FixedPointSearch:
     return fps
 
   def find_fixed_points(self, inputs, save=False):
+    
+    hvd.init()
 
+    self.is_root = hvd.rank() == 0
     if self.ctype == 'LSTM':
       n = (self.sampled_states.c.shape[0],self.sampled_states.c.shape[1]*2)[0]
       _state = convert_from_lstm_tuples(self.sampled_states)
@@ -641,7 +640,7 @@ class FixedPointSearch:
       print('decomposing Jacobians')
       unique_fps.decompose_jacobians 
     
-    if save == True:
+    if save == True and is_root:
       all_fps.save('all')
       unique_fps.save('unique')          
     

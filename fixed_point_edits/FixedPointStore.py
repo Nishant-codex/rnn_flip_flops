@@ -11,7 +11,7 @@ from __future__ import division
 from __future__ import print_function
 
 import numpy as np
-#import os
+import os
 import sys 
 
 sys.path.insert(0,'/home/joshi/fixed_point_edits')
@@ -25,7 +25,7 @@ import tensorflow as tf
 # %tensorflow_version 1.x magic
 #import matplotlib.pyplot as plt
 import numpy.random as nrand
-
+import pickle 
 np.random.seed(400)
 # import numpy as np
 import time
@@ -321,10 +321,14 @@ class FixedPointStore:
     return indexed_fp
 
   def save(self, string):
-    # !mkdir fps_saver
-    file = open('fps_saver/fixedPoint_'+string+'.p','wb')
-    pickle.dump(self.__dict__,file)
-    file.close()
+    dir_name = 'fps_saver'
+    if not os.path.exists(os.path.dirname(dir_name)):
+      os.makedirs(os.path.dirname(dir_name))
+    
+    filename  = 'fps_saver/fixedPoint_'+string+'.p'   
+    f =  open(filename,'wb')
+    pickle.dump(self.__dict__,f)
+    f.close()
 
   def restore(self, path):
     file = open(path,'rb')
