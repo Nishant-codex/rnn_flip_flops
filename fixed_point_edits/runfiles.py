@@ -16,14 +16,10 @@ import os
 import tensorflow as tf
 import sys 
 
-# sys.path.insert(0,'/home/joshi/fixed_point_edits')
-sys.path.insert(0,'/home/joshi/fixed_point_edits')
-# %tensorflow_version 1.x magic
+
 import matplotlib.pyplot as plt
-#import numpy.random as nrand
 np.random.seed(400)
-# import numpy as np
-#import time
+import time
 from AdaptiveGradNormClip import AdaptiveGradNormClip
 from AdaptiveLearningRate import AdaptiveLearningRate
 
