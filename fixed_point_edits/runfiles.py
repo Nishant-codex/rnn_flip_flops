@@ -34,13 +34,14 @@ from FixedPointSearch import *
 
 n_bits = 3
 
-rnn_object = FlipFlop(c_type='LSTM')
+rnn_object = FlipFlop()
 
 hps_array = rnn_object.hps_array()
 
 for i in range(len(hps_array)//2):
-
-	print('the hps are ',hps_array[i])
+	
+	if rnn_object.is_root:
+		print('the hps are ',hps_array[i])
 
 	rnn_object.c_type = hps_array[i]['arch']
 	rnn_object.activation = hps_array[i]['activ']
@@ -55,15 +56,15 @@ for i in range(len(hps_array)//2):
 #-----------------------------Train and visualize--------------------------------------------------
 	
 	rnn_object.train_network(save=True)
-	path = os.getcwd()+'/trained'
-	dir_array = os.listdir(os.path.join(os.path.abspath(f'{path}')))
-	lis = rnn_object.reload_from_checkpoints(dir_array[i])
+
+	chkpt = rnn_object.savedir[i] 
+	lis = rnn_object.reload_from_checkpoints(chkpt)
 
 	plt.plot(lis['predictions'][:500,0])
 	plt.plot(np.reshape(lis['truth'],[-1,3])[:500,0])
 
 	plt.show()
-	plt.savefig('outputs_'+dir_array[i]+'.png')
+	plt.savefig(chkpt+'/outputs.png')
 
 
 #--------------------------------------Finding the fixed points----------------------------------------#

@@ -80,6 +80,7 @@ class FlipFlop:
         self.l2_loss = l2_loss
         self.c_type = c_type    
         self.sess = 0
+        self.is_root = False
         self.cell = None
         self.path = None
         self.learning_rate = None
@@ -88,6 +89,7 @@ class FlipFlop:
         self.global_step = None
         self.grad_global_norm = None
         self.logdir = 0
+        self.savedir = []
 
         np.random.seed(self.seed)
 
@@ -377,7 +379,7 @@ class FlipFlop:
     def train_network(self, verbose=True, save=True):
       # time_1 = time.time()
       config = self.setup_mpi_horovod()
-      is_root = hvd.rank() == 0
+      self.is_root = hvd.rank() == 0
       act = self.setup_model()
       self.setup_tensorboard(act)
       dist_decorator = DataDistributor(mpi_comm=mpi4py.MPI.COMM_WORLD, shutdown_on_error=True)
@@ -393,8 +395,7 @@ class FlipFlop:
       training_loss = 0
       hidden = []
       num_steps = len(data)#//hvd.size()+1
-      
-      if is_root: print('data loaded with size ',num_steps)
+      if self.is_root: print('data loaded with size ',num_steps)
 
       hooks = [hvd.BroadcastGlobalVariablesHook(0),
 
@@ -408,7 +409,8 @@ class FlipFlop:
       # saver = tf.train.Saver()
 
       self.path = self.get_path_for_saving()
-      if is_root:
+      self.savedir.append(self.path) 
+      if self.is_root:
         print(self.path)
       # config = act['config']
       checkpoint_dir = self.path if hvd.rank() == 0 else None
@@ -423,7 +425,7 @@ class FlipFlop:
         training_losses = []
         # num_steps = len(data)//hvd.size()+1
         i = 0
-        if is_root: print('Training statrted')
+        if self.is_root: print('Training statrted')
         while not self.sess.should_stop():
 
           ground_truth = data[i]['outputs'] # , grad_global_norm 
@@ -445,7 +447,7 @@ class FlipFlop:
           # self.sess.run(self.global_step)
           summary_writer.add_summary(summary, epochs)
           i +=1
-          if is_root and verbose:
+          if self.is_root and verbose:
               print("Average training loss for ITERATION", epochs, ":", tr_losses)
           training_losses.append(training_loss)
           training_loss = 0
@@ -457,7 +459,7 @@ class FlipFlop:
             hidden.append(outputs)
           epochs +=1
         hidden.append(outputs)
-        if is_root: print('training finished') 
+        if self.is_root: print('training finished') 
 
         # if hvd.rank() == 0 :
         #   if(save):
@@ -514,7 +516,7 @@ class FlipFlop:
       
       model = self.setup_model()
  
-
+      self.is_root = hvd.rank() == 0
       chkpt_ = tf.train.get_checkpoint_state(chkpt)
 
       self.graph = model
@@ -531,7 +533,7 @@ class FlipFlop:
 
       saver.restore(self.sess, chkpt_.model_checkpoint_path)
 
-      print("successfully loaded from checkpoints")
+      if self.is_root: print("successfully loaded from checkpoints")
 
       hiddens, outputs, losses = self.sess.run([self.graph['hiddens'],self.graph['predict'],self.graph['losses']],feed_dict=feed_dict)
     
