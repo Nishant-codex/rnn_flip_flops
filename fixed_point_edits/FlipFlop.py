@@ -259,9 +259,9 @@ class FlipFlop:
 
       if self.c_type == 'UGRNN':
         if self.activation == 'tanh':
-          self.cell = tf.contrib.rnn.UGRNN(self.state_size,reuse=tf.AUTO_REUSE, activation=tf.nn.tanh)
+          self.cell = tf.contrib.rnn.UGRNNCell(self.state_size,reuse=tf.AUTO_REUSE, activation=tf.nn.tanh)
         else:
-          self.cell = tf.contrib.rnn.UGRNN(self.state_size,reuse=tf.AUTO_REUSE, activation=tf.nn.relu)
+          self.cell = tf.contrib.rnn.UGRNNCell(self.state_size,reuse=tf.AUTO_REUSE, activation=tf.nn.relu)
 
       if self.c_type == 'LSTM':
         if self.activation == 'tanh':
