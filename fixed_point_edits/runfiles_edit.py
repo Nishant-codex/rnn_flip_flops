@@ -38,7 +38,7 @@ from FixedPointStore import FixedPointStore
 # 	    plot_start_time=10)
 from FlipFlop import FlipFlop
 # from FlipFlop_GPU import FlipFlop_GPU
-# from FixedPointSearch import *
+from FixedPointSearch import *
 
 
 
