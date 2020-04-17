@@ -28,7 +28,8 @@ class FixedPointSearch:
 
   def __init__(self, 
               ctype, 
-              states, 
+              states,
+              savepath, 
               cell=None,
               sess=None,
               max_iters = 5000,
@@ -48,6 +49,7 @@ class FixedPointSearch:
     self.max_iters = max_iters 
     self.ctype = ctype
     self.tol_q = tol_q
+    self.savepath = savepath
     self.tol_dq = tol_dq
     self.adaptive_learning_rate_hps = adaptive_learning_rate_hps
     self.grad_norm_clip_hps =grad_norm_clip_hps
@@ -164,7 +166,6 @@ class FixedPointSearch:
   def compute_recurrent_jacobians(self, fps):
 
     inputs = fps.inputs
-    print(inputs)
     if self.ctype == 'LSTM':
       # print('line2')
     
@@ -181,13 +182,16 @@ class FixedPointSearch:
     # print('line5')
 
     try: 
-      print('batch jacobians')
+      if self.is_root:
+        print('batch jacobians')
       J_tf = pfor.batch_jacobian(F_tf,x_tf)
     except absl.flags._exceptions.UnparsedFlagAccessError:
       J_tf = pfor.batch_jacobian(F_tf, x_tf, use_pfor=False)
-    print('running cells')
+    if self.is_root:
+      print('running cells')
     J_np = self.sess.run(J_tf)
-
+    if self.is_root:
+      print('out of batch jacobians')
     return J_np, J_tf
 
   def sample_states(self, init_size, state_matrix, c_type, noise):
@@ -248,13 +252,15 @@ class FixedPointSearch:
 
     init_non_outlier_idx = np.where(scaled_init_dists < dist_thresh)[0]
     n_init_non_outliers = init_non_outlier_idx.size
-    print('\t\tinitial_states: %d outliers detected (of %d).'
-        % (num_inits - n_init_non_outliers, num_inits))
+    if self.is_root:
+      print('\t\tinitial_states: %d outliers detected (of %d).'
+          % (num_inits - n_init_non_outliers, num_inits))
 
     fps_non_outlier_idx = np.where(scaled_fps_dists < dist_thresh)[0]
     n_fps_non_outliers = fps_non_outlier_idx.size
-    print('\t\tfixed points: %d outliers detected (of %d).'
-        % (n_fps - n_fps_non_outliers, n_fps))
+    if self.is_root:
+      print('\t\tfixed points: %d outliers detected (of %d).'
+          % (n_fps - n_fps_non_outliers, n_fps))
 
     return fps_non_outlier_idx
 
@@ -397,14 +403,15 @@ class FixedPointSearch:
             np.all(np.logical_or(
                 ev_dq < self.tol_dq*iter_learning_rate,
                 ev_q < self.tol_q)):
-
-            print('\tOptimization complete to desired tolerance.')
+            if self.is_root:
+              print('\tOptimization complete to desired tolerance.')
             break
 
         if iter_count + 1 > 5000:
+          if self.is_root:
             print('\tMaximum iteration count reached. '
                                     'Terminating.')
-            break
+          break
 
         q_prev = ev_q
         adaptive_learning_rate.update(ev_q_scalar)
@@ -518,10 +525,11 @@ class FixedPointSearch:
               small steps due to very small learning rates would spuriously
               indicate convergence. This scaling is roughly equivalent to
               measuring the gradient norm.'''
-              print('\tOptimization complete to desired tolerance.')
+              if self.is_root:
+                print('\tOptimization complete to desired tolerance.')
               break
 
-          if iter_count + 1 > self.max_iters:
+          if iter_count + 1 > self.max_iters//hvd.size():
               print('\tMaximum iteration count reached. '
                                       'Terminating.')
               break
@@ -550,12 +558,15 @@ class FixedPointSearch:
 
 
   def run_sequential_optimization(self, states, inputs, q_prior = None):
-    
+    if self.is_root:
+      print('run_sequential_optimization')
     num_inits, num_states = self.find_shape(states) 
     num_inputs = inputs.shape[1]
 
     fresh_start = q_prior is None
-    
+    if self.is_root:
+
+      print('fresh_start ', fresh_start)
     fps = FixedPointStore(num_inits=num_inits, num_states=num_states, num_inputs=num_inputs, alloc_zeros=True)
 
     init_dict = {'num_inits':num_inits,'num_states':num_states,'num_inputs':num_inputs}
@@ -564,12 +575,15 @@ class FixedPointSearch:
       index = slice(i, i+1)
       state_inst_i  = self.return_index(states, index)
       input_inst_i  = inputs[index, :]
+      if self.is_root : print('state number ',i)
+      if fresh_start and i == 0 :
+        if self.is_root:
+          print('Starting to find the fixed points')
 
-      if fresh_start:
-        print('Starting to find the fixed points')
 
-      else: 
-        print('running iterations over q again')
+      elif fresh_start==False: 
+        if self.is_root:
+          print('running iterations over q again')
       
       fps[index] = self.run_iteration_loops(state_inst_i, input_inst_i, init_dict)
 
@@ -593,15 +607,19 @@ class FixedPointSearch:
     # sample_inputs = inputs
     all_fps = self.run_sequential_optimization(_state, sample_inputs)
     # all_fps = self.run_joint_optimization(_state, sample_inputs)
-    print('All FPS shape')
+    if self.is_root:
+      print('All FPS shape ', all_fps.num_inits)
     # print(all_fps.xstar.shape)
     # print('Finding unique Fixedpoints')
     unique_fps = all_fps.get_unique()
-    print('Found unique Fixedpoints')
+    if self.is_root:
+      print('Found unique Fixedpoints with size ',unique_fps.num_inits)
 
     if (self.exclude_dis_outliers):
+  
       unique_fps = self.exclude_dis_outliers_(unique_fps,_state )
-      print('Distance outliers excluded')
+      if self.is_root:
+        print('Distance outliers excluded, currently size',unique_fps.num_inits)
     
     if self.rerun_q_outliers:
       unique_fps = self.run_additional_iterations_on_outliers_(unique_fps)
@@ -617,13 +635,16 @@ class FixedPointSearch:
     #can select fixed maximum number of points since all are not needed
     if self.compute_jacobians:
 
-      if (unique_fps.num_inits > 0):
-        print('computing recurrent jacobians')
+      if (unique_fps.num_inits > 0) :
+        if self.is_root:
+
+          print('computing recurrent jacobians')
         
         dFdx, dFdx_tf = self.compute_recurrent_jacobians(unique_fps)
         unique_fps.J_xstar = dFdx
+        if self.is_root:
 
-        print('Compute input Jacobians')
+          print('Compute input Jacobians')
         dFdu, dFdu_tf = self.compute_input_jacobians(unique_fps)
         unique_fps.dFdu = dFdu
       else:
@@ -637,11 +658,16 @@ class FixedPointSearch:
         unique_fps.dFdu = unique_fps._alloc_zeros(shape_dFdu)
 
     if self.decompose_jacobians:
-      print('decomposing Jacobians')
+      if self.is_root:
+        print('decomposing Jacobians')
       unique_fps.decompose_jacobians 
+      if self.is_root:
+        print('decomposed Jacobians')
     
-    if save == True and is_root:
-      all_fps.save('all')
-      unique_fps.save('unique')          
-    
+    if save == True and self.is_root:
+      print('saving')
+      all_fps.save(self.savepath, 'all')
+      unique_fps.save(self.savepath, 'unique')          
+    if self.is_root:
+      print('coming out')
     return unique_fps, all_fps

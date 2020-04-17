@@ -230,15 +230,16 @@ class FixedPointStore:
 
   def decompose_jacobians(self, do_batch=True, str_prefix=''):
     if self.has_decomposed_jacobians:
-      print('%Jacobians have been decomposed, not repeating. '% str_prefix )
+      if self.is_root:
+        print('%Jacobians have been decomposed, not repeating. '% str_prefix )
       return 
     
     num = self.num_inits
     num_states = self.num_states
 
     if do_batch:
-
-      print('%Decomposing jacobians in a single batch.' % str_prefix)
+      if self.is_root:
+        print('%Decomposing jacobians in a single batch.' % str_prefix)
 
       valid_J_idx = ~np.any(np.isnan(self.J_xstar), axis=(1,2))
   
@@ -252,7 +253,8 @@ class FixedPointStore:
         e_vals_unsrt[valid_J_idx],e_vecs_unsrt[valid_J_idx] = np.linalg.eig(self.J_xstar[valid_J_idx])
 
     else:
-      print('%Decomposing jacobians one at a time.' %str_prefix)
+      if self.is_root:
+        print('%Decomposing jacobians one at a time.' %str_prefix)
       e_vals = []
       e_vecs = []
       for J in self.J_xstar:
@@ -270,8 +272,8 @@ class FixedPointStore:
 
       e_vals_unsrt = np.concatenate(e_vals,axis=0)
       e_vecs_unsrt = np.concatenate(e_vecs,axis=0)
-
-    print('%sorting by Eigenvalues magnitude.' % str_prefix)
+    if self.is_root:
+      print('%sorting by Eigenvalues magnitude.' % str_prefix)
 
     sort_idx = np.argsort(np.abs(e_vals_unsrt))[:,::-1]
 
@@ -320,20 +322,23 @@ class FixedPointStore:
                              tol_unique = tol)
     return indexed_fp
 
-  def save(self, string):
-    dir_name = 'fps_saver'
+  def save(self, path, string):
+    print(path)
+    dir_name = path+'/fps_saver/' 
     if not os.path.exists(os.path.dirname(dir_name)):
       os.makedirs(os.path.dirname(dir_name))
     
-    filename  = 'fps_saver/fixedPoint_'+string+'.p'   
+    filename  = dir_name+'fixedPoint_'+string+'.p'   
     f =  open(filename,'wb')
+    # print(self.__dict__)
     pickle.dump(self.__dict__,f)
     f.close()
-
+    print('saved')
   def restore(self, path):
     file = open(path,'rb')
     restore_data = file.read()
     file.close()
     # print(type(pickle.loads(restore_data)))
-    # print(type(self.__dict__))
+    # print((self.__dict__))
     self.__dict__ = pickle.loads(restore_data,encoding='latin1')
+    return(self.__dict__)

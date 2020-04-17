@@ -322,14 +322,14 @@ class FlipFlop:
     def get_path_for_saving(self):
 
       name = str(self.c_type)+'_hps_states_'+str(self.state_size)+'_l2_'+str(self.l2_loss)+'_'+str(self.activation)  
-      dir_name = os.getcwd()+'/trained/'+name+'/'
+      dir_name = os.getcwd()+'/trained/'+name
       if not os.path.exists(os.path.dirname(dir_name)):
           os.makedirs(os.path.dirname(dir_name))
-      return dir_name 
+      self.path = dir_name 
 
-    def setup_tensorboard(self, dict):
+    def setup_tensorboard(self, path, dict):
 
-      dir_name = os.getcwd()+'/tf_logs/'
+      dir_name = path+'/tf_logs/'
       if not os.path.exists(os.path.dirname(dir_name)):
           os.makedirs(os.path.dirname(dir_name))
       self.logdir =  dir_name
@@ -381,7 +381,7 @@ class FlipFlop:
       config = self.setup_mpi_horovod()
       self.is_root = hvd.rank() == 0
       act = self.setup_model()
-      self.setup_tensorboard(act)
+
       dist_decorator = DataDistributor(mpi_comm=mpi4py.MPI.COMM_WORLD, shutdown_on_error=True)
   
       get_rank_local_filenames = dist_decorator(self.get_filenames)
@@ -408,8 +408,10 @@ class FlipFlop:
       # writer = tf.summary.FileWriter('./graphs')
       # saver = tf.train.Saver()
 
-      self.path = self.get_path_for_saving()
-      self.savedir.append(self.path) 
+      # self.path = self.get_path_for_saving()
+      self.get_path_for_saving()
+      self.setup_tensorboard(self.path,act)
+      self.savedir = os.listdir(os.getcwd()+'/trained') 
       if self.is_root:
         print(self.path)
       # config = act['config']
@@ -445,7 +447,8 @@ class FlipFlop:
 
           training_loss += tr_losses
           # self.sess.run(self.global_step)
-          summary_writer.add_summary(summary, epochs)
+          if is_root:
+            summary_writer.add_summary(summary, epochs)
           i +=1
           if self.is_root and verbose:
               print("Average training loss for ITERATION", epochs, ":", tr_losses)
