@@ -12,10 +12,13 @@ import absl
 from tensorflow.python.ops import parallel_for as pfor
 from FixedPointStore import *
 import tensorflow as tf
+
 import horovod.tensorflow as hvd
+
 #import cProfile
 # %tensorflow_version 1.x magic
 #import matplotlib.pyplot as plt
+
 import numpy.random as nrand
 
 np.random.seed(0)
@@ -48,6 +51,7 @@ class FixedPointSearch:
 
     self.max_iters = max_iters 
     self.ctype = ctype
+    self.dtype = np.float32
     self.tol_q = tol_q
     self.savepath = savepath
     self.tol_dq = tol_dq
@@ -194,7 +198,7 @@ class FixedPointSearch:
       print('out of batch jacobians')
     return J_np, J_tf
 
-  def sample_states(self, init_size, state_matrix, c_type, noise):
+  def sample_states(self, init_size, state_matrix,c_type, noise):
 
     if c_type =='LSTM':
       matrix = convert_from_lstm_tuples(state_matrix)
@@ -421,6 +425,7 @@ class FixedPointSearch:
     iter_count = np.tile(iter_count, ev_q.shape)
     fixed_point = FixedPointStore(xstar = ev_x,
                                   inputs = inputs,
+                                  dtype = self.dtype,
                                   alloc_zeros = False, 
                                   x_init = states,
                                   F_xstar=ev_F, 
@@ -481,7 +486,7 @@ class FixedPointSearch:
       grads_to_apply = clipped_grads
 
       # adam_hps = {'epsilon': 0.01}
-      optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate, **self.adam_optimizer_hps)
+      optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate * hvd.size(), **self.adam_optimizer_hps)
       optimizer = hvd.DistributedOptimizer(optimizer)
       train = optimizer.apply_gradients(zip(grads_to_apply, [x]))
 
@@ -529,9 +534,10 @@ class FixedPointSearch:
                 print('\tOptimization complete to desired tolerance.')
               break
 
-          if iter_count + 1 > self.max_iters//hvd.size():
-              print('\tMaximum iteration count reached. '
-                                      'Terminating.')
+          if iter_count + 1 > self.max_iters:
+              if self.is_root:            
+                print('\tMaximum iteration count reached. '
+                                        'Terminating.')
               break
 
           q_prev = ev_q
@@ -546,6 +552,7 @@ class FixedPointSearch:
           #                       num_inputs = init_array['num_inputs'], 
                                 xstar = ev_x,
                                 alloc_zeros = False, 
+                                dtype =self.dtype,
                                 x_init = initial_states,
                                 inputs = inputs,
                                 F_xstar=ev_F, 
@@ -559,7 +566,7 @@ class FixedPointSearch:
 
   def run_sequential_optimization(self, states, inputs, q_prior = None):
     if self.is_root:
-      print('run_sequential_optimization')
+      print('running sequential optimization')
     num_inits, num_states = self.find_shape(states) 
     num_inputs = inputs.shape[1]
 
@@ -605,12 +612,16 @@ class FixedPointSearch:
     sample = inputs
     sample_inputs = np.tile(sample,[n,1])
     # sample_inputs = inputs
-    all_fps = self.run_sequential_optimization(_state, sample_inputs)
-    # all_fps = self.run_joint_optimization(_state, sample_inputs)
+    # all_fps = self.run_sequential_optimization(_state, sample_inputs)
+    if self.is_root:  
+      print("running joint optimizer")
+    all_fps = self.run_joint_optimization(_state, sample_inputs)
+
     if self.is_root:
       print('All FPS shape ', all_fps.num_inits)
     # print(all_fps.xstar.shape)
-    # print('Finding unique Fixedpoints')
+    if self.is_root:    
+      print('Finding unique Fixedpoints')
     unique_fps = all_fps.get_unique()
     if self.is_root:
       print('Found unique Fixedpoints with size ',unique_fps.num_inits)
@@ -660,7 +671,7 @@ class FixedPointSearch:
     if self.decompose_jacobians:
       if self.is_root:
         print('decomposing Jacobians')
-      unique_fps.decompose_jacobians 
+      unique_fps.decompose_jacobians() 
       if self.is_root:
         print('decomposed Jacobians')
     

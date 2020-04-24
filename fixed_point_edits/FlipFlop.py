@@ -9,13 +9,13 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 import numpy.random as nrand
 import horovod.tensorflow as hvd
-
 from hpc4neuro.errors import MpiInitError
 from hpc4neuro.distribution import DataDistributor
 import mpi4py
 # from data_utils import DataValidator
 
 import time
+import datetime as dt 
 from AdaptiveGradNormClip import AdaptiveGradNormClip
 from AdaptiveLearningRate import AdaptiveLearningRate
 
@@ -58,27 +58,33 @@ class FlipFlop:
         learning_rate = hyp_dict['learning_rate'],
         p = hyp_dict['p'],
         c_type = hyp_dict['c_type'],
-        _seed = 400,
-        l2_loss = hyp_dict['l2_loss']):
+        _seed = 200,
+        l2_loss = hyp_dict['l2_loss'],
+        opt = 'momentum',
+        **hps):
       
         self.seed = _seed
         self.time = time
         self.bits = bits
-        self.activation = None
+
+        # if hps is not None:
+        self.activation = hps['activ']
+        self.l2_loss = hps['l2_norm']
+        self.state_size = hps['units'] 
+        self.c_type = hps['arch']  
+
         self.num_steps = num_steps
-        self.num_steps =num_steps 
+        self.hps = hps
         self.batch_size = batch_size 
-        self.state_size = state_size 
         self.num_classes = num_classes
         self.learning_rate = learning_rate
-        self.p = p  
-        self.adaptive_learning_rate = AdaptiveLearningRate(**{})
-        self.adaptive_grad_norm_clip = AdaptiveLearningRate(**{})
+        self.p = p 
+        self.opt = opt 
+        self.adaptive_learning_rate = AdaptiveLearningRate(**{})#hps['al_hps'])
+        self.adaptive_grad_norm_clip = AdaptiveGradNormClip(**{})
         self.dtype = tf.float32
         self.graph = 0
         self.grad_norm_clip_val = None
-        self.l2_loss = l2_loss
-        self.c_type = c_type    
         self.sess = 0
         self.is_root = False
         self.cell = None
@@ -90,30 +96,11 @@ class FlipFlop:
         self.grad_global_norm = None
         self.logdir = 0
         self.savedir = []
+        self.data = None
 
         np.random.seed(self.seed)
 
-    def hps_array(self):
-      arch  = ['Vanilla', 'UGRNN', 'GRU', 'LSTM']
-      activ = ['tanh' , 'relu']
-      units = [64, 128, 256 ]
-      l2_norm = [1e-5, 1e-4, 1e-3, 1e-2]
-      hps_dict = {'arch':arch,
-                  'activ':activ,
-                  'units':units,
-                  'l2_norm':l2_norm}
-    
-      hps_array = []
-    
-      for i in arch:
-        for j in activ:
-          for k in units:
-            for l in l2_norm:
-              hps_array.append({'arch':i,
-                                'activ':j,
-                                'units':k,
-                                'l2_norm':l})
-      return hps_array    
+  
 
     def flip_flop(self, plot=False):
     
@@ -179,6 +166,7 @@ class FlipFlop:
       
     def save_data(self, array , i):
       dir_name = os.getcwd()+'/data_'+str(self.seed)+'/'
+      print(dir_name)
       if not os.path.exists(os.path.dirname(dir_name)):
         os.makedirs(os.path.dirname(dir_name))
 
@@ -203,43 +191,54 @@ class FlipFlop:
       # with tf.variable_scope('record' , trainable = False, reuse = False):
       #   self.global_step = tf.Variable( 0, name='global_step', trainable=False, dtype=tf.int32)
 
-      vars_to_train = tf.trainable_variables()
+      # vars_to_train = tf.trainable_variables()
 
-      with tf.variable_scope('optimizer', reuse=False):
+      # with tf.variable_scope('optimizer', reuse=False):
 
-        # Gradient clipping
-        grads = tf.gradients(loss, vars_to_train)
+      #   # Gradient clipping
+      #   grads = tf.gradients(loss, vars_to_train)
 
-        self.grad_norm_clip_val = tf.placeholder(self.dtype, name='grad_norm_clip_val')
+      #   self.grad_norm_clip_val = tf.placeholder(self.dtype, name='grad_norm_clip_val')
 
-        clipped_grads, self.grad_global_norm = tf.clip_by_global_norm(grads, self.grad_norm_clip_val)
+      #   clipped_grads, self.grad_global_norm = tf.clip_by_global_norm(grads, self.grad_norm_clip_val)
 
-        clipped_grad_global_norm = tf.global_norm(clipped_grads)
+      #   clipped_grad_global_norm = tf.global_norm(clipped_grads)
 
-        clipped_grad_norm_diff = self.grad_global_norm - clipped_grad_global_norm
+      #   clipped_grad_norm_diff = self.grad_global_norm - clipped_grad_global_norm
 
-        zipped_grads = zip(clipped_grads, vars_to_train)
+      #   zipped_grads = zip(clipped_grads, vars_to_train)
 
-        # self.learning_rate = tf.placeholder(self.dtype, name='learning_rate')
+      #   self.learning_rate = tf.placeholder(self.dtype, name='learning_rate')
         
-        adam_hps =  {'epsilon': 0.01,
-                    'beta1': 0.9,
-                    'beta2': 0.999,
-                    'use_locking': False,
-                    'name': 'Adam'}
-        
-        # optimizer = tf.train.AdamOptimizer(learning_rate = self.learning_rate*hvd.size(), **adam_hps)
+      #   adam_hps =  {'epsilon': 0.01,
+      #               'beta1': 0.9,
+      #               'beta2': 0.999,
+      #               'use_locking': False,
+      #               'name': 'Adam'}
+      #   if self.opt == 'adam':
+      #     optimizer = tf.train.AdamOptimizer(learning_rate = self.learning_rate*hvd.size(), **adam_hps)
+      #     optimizer = hvd.DistributedOptimizer(optimizer)
+      #     train_op = optimizer.apply_gradients(zipped_grads, global_step=self.global_step)
+
+      if self.opt == 'norm':
         optimizer = tf.train.AdagradOptimizer(0.001*hvd.size())
         optimizer = hvd.DistributedOptimizer(optimizer)
         train_op = optimizer.minimize(loss, global_step=self.global_step)
-        # train_op = optimizer.apply_gradients(zipped_grads, global_step=self.global_step)
 
-        return train_op
+      elif self.opt == 'momentum':
+        decay = tf.train.exponential_decay(0.1, self.global_step, 20000, 0.99)
+        optimizer = tf.train.MomentumOptimizer(decay, 0.001)
+        # optimizer = tf.train.AdamOptimizer(decay*hvd.size(),epsilon=1e-1)
+        optimizer = hvd.DistributedOptimizer(optimizer)
+        gradients, variables = zip(*optimizer.compute_gradients(loss))
+        gradients = [None if gradient is None else tf.clip_by_norm(gradient, 10.0) for gradient in gradients]
+        train_op = optimizer.apply_gradients(zip(gradients, variables), global_step=self.global_step)
+
+      return train_op
 
     
     def setup_model(self):
 
-      # hvd.init()
       self.reset_graph()
       
       x = tf.placeholder(tf.float32, [self.batch_size, self.time, self.bits], name='input_placeholder')
@@ -281,28 +280,19 @@ class FlipFlop:
       with tf.variable_scope('losses',reuse=tf.AUTO_REUSE):
           W = tf.get_variable('W', [self.state_size , self.bits])
           b = tf.get_variable('b', [self.bits], initializer=tf.constant_initializer(0.0))
-      # plt.plot(W)
       rnn_outputs_ = tf.reshape(rnn_outputs, [-1, self.state_size])
     
       logits = tf.tensordot(rnn_outputs_,W,axes=1) + b
-      # predictions = tf.nn.softmax(logits)
       self.global_step = tf.train.get_or_create_global_step()    
       y_as_list =tf.reshape(y, [-1, self.bits]) #shape is flattened_tensor x bits
       vars_   = tf.trainable_variables() 
 
-      lossL2 = tf.add_n([ tf.nn.l2_loss(v) for v in vars_ if 'b' not in v.name ]) * self.l2_loss
+      # lossL2 = tf.add_n([ tf.nn.l2_loss(v) for v in vars_ if 'b' not in v.name ]) * self.l2_loss
+      lossL2 = tf.nn.l2_loss(W)* self.l2_loss
 
+      losses = tf.squared_difference(logits, y_as_list) + lossL2
+      total_loss = tf.reduce_mean(losses)
 
-      losses = tf.squared_difference(logits, y_as_list)
-      total_loss = tf.reduce_mean(losses) + lossL2
-      # train_step = tf.train.AdagradOptimizer(self.learning_rate).minimize(total_loss)
-
-      # opt = tf.train.AdagradOptimizer(0.001 * hvd.size())
-
-      # opt = hvd.DistributedOptimizer(opt)
-
-
-      # train_op = opt.minimize(total_loss, global_step=self.global_step)
       train_op = self.setup_optimizer(total_loss)
 
       return {'losses':total_loss, 
@@ -313,31 +303,35 @@ class FlipFlop:
               'Y':y, 
               'predict':logits, 
               'init_state':init_state , 
-              # 'saver' : tf.train.Saver(),
               'cell':self.cell, 
               'weights':W ,
-              # 'config':config
               }
 
     def get_path_for_saving(self):
 
-      name = str(self.c_type)+'_hps_states_'+str(self.state_size)+'_l2_'+str(self.l2_loss)+'_'+str(self.activation)  
+      name = str(self.c_type)+'_hps_states_'+str(self.state_size)+'_l2_'+str(self.l2_loss)+'_'+str(self.activation) 
       dir_name = os.getcwd()+'/trained/'+name
       if not os.path.exists(os.path.dirname(dir_name)):
           os.makedirs(os.path.dirname(dir_name))
-      self.path = dir_name 
+          self.path = dir_name 
+      else: 
+          self.path = dir_name 
+        
 
-    def setup_tensorboard(self, path, dict):
+    def setup_tensorboard(self, dict):
 
-      dir_name = path+'/tf_logs/'
-      if not os.path.exists(os.path.dirname(dir_name)):
+      dir_name = self.path+'/tf_logs/'
+      try:
+        if not os.path.exists(os.path.dirname(dir_name)):
           os.makedirs(os.path.dirname(dir_name))
-      self.logdir =  dir_name
-      tf.summary.scalar("loss",dict['losses'])
-      # tf.summary.scalar("train_step", dict['train_step'])
-      # tf.summary.scalar("learning_rate", self.learning_rate)
+      
+          self.logdir =  dir_name
+      except:
+          self.logdir =  dir_name
 
+      tf.summary.scalar("loss",dict['losses'])
       self.merged_summary_op = tf.summary.merge_all()
+
 
     def setup_mpi_horovod(self):
 
@@ -376,25 +370,30 @@ class FlipFlop:
       arrays = [np.load(os.path.join(path, f)) for f in filenames]
       return np.concatenate(arrays)
 
-    def train_network(self, verbose=True, save=True):
-      # time_1 = time.time()
-      config = self.setup_mpi_horovod()
-      self.is_root = hvd.rank() == 0
-      act = self.setup_model()
-
+    def loaddata(self):
       dist_decorator = DataDistributor(mpi_comm=mpi4py.MPI.COMM_WORLD, shutdown_on_error=True)
   
       get_rank_local_filenames = dist_decorator(self.get_filenames)
 
-      # i = hvd.rank()
-      datapath = os.getcwd()+'/data_400'#/data'+str(i)+'.npy'
+      datapath = os.getcwd()+'/data_'+str(self.seed)
       filenames = get_rank_local_filenames(datapath)
-      data = self.get_data(datapath, filenames)
-      # data = self.data_batches(num_epochs)
+      self.data = self.get_data(datapath, filenames)
+
+
+    def train_network(self, verbose=True, save=True):
+      t1 = dt.datetime.now()
+      config = self.setup_mpi_horovod()
+      self.is_root = hvd.rank() == 0
+
+      act = self.setup_model()
+
+      self.loaddata()
+
+
       epochs = 0
       training_loss = 0
       hidden = []
-      num_steps = len(data)#//hvd.size()+1
+      num_steps = len(self.data)#//hvd.size()+1
       if self.is_root: print('data loaded with size ',num_steps)
 
       hooks = [hvd.BroadcastGlobalVariablesHook(0),
@@ -404,50 +403,57 @@ class FlipFlop:
       tf.train.LoggingTensorHook(tensors={'step': self.global_step, 
                                           'loss': act['losses']},
                                  every_n_iter=10) ]
-      # path = input('What should be the name of the file?')
-      # writer = tf.summary.FileWriter('./graphs')
-      # saver = tf.train.Saver()
-
-      # self.path = self.get_path_for_saving()
       self.get_path_for_saving()
-      self.setup_tensorboard(self.path,act)
-      self.savedir = os.listdir(os.getcwd()+'/trained') 
+      self.setup_tensorboard(act)
       if self.is_root:
         print(self.path)
-      # config = act['config']
+
       checkpoint_dir = self.path if hvd.rank() == 0 else None
       with tf.train.MonitoredTrainingSession(checkpoint_dir=checkpoint_dir,
                                                hooks=hooks,
                                                config=config) as sess:
         self.sess = sess
-        # self.sess.run(tf.global_variables_initializer())
-        # self.sess.run(hvd.broadcast_global_variables(0))
+
         summary_writer = tf.summary.FileWriter(self.logdir, graph=tf.get_default_graph())
 
         training_losses = []
         # num_steps = len(data)//hvd.size()+1
         i = 0
-        if self.is_root: print('Training statrted')
+        if self.is_root: print('Training statrted with hps ', self.hps)
         while not self.sess.should_stop():
-
-          ground_truth = data[i]['outputs'] # , grad_global_norm 
-          tr_losses, training_step_, training_state, outputs, predict , summary= \
-                      self.sess.run([act['losses'],
-                                    act['train_step'],
-                                    act['finalstate'],
-                                    act['hiddens'],
-                                    act['predict'], 
-                                    self.merged_summary_op],
-                                    # self.grad_global_norm],
-                                    feed_dict={act['X']:data[i]['inputs'], 
-                                              act['Y']:data[i]['outputs'],
-                                              # self.learning_rate:self.adaptive_learning_rate(),
-                                              # self.grad_norm_clip_val:self.adaptive_grad_norm_clip()
-                                              })
-
+          if self.opt == 'norm' or self.opt == 'momentum' :
+            ground_truth = self.data[i]['outputs']  
+            tr_losses, training_step_, training_state, outputs, predict , summary= \
+                        self.sess.run([act['losses'],
+                                      act['train_step'],
+                                      act['finalstate'],
+                                      act['hiddens'],
+                                      act['predict'], 
+                                      self.merged_summary_op],
+                                      feed_dict={act['X']:self.data[i]['inputs'], 
+                                                act['Y']:self.data[i]['outputs'],
+                                                })
+          # if tr_losses==np.nan or tr_losses ==np.inf:
+          #   raise "gra"
+          # elif self.opt == 'adam':
+          #   ground_truth = self.data[i]['outputs']  
+          #   tr_losses, training_step_, training_state, outputs, predict , summary , ev_grad_global_norm= \
+          #               self.sess.run([act['losses'],
+          #                             act['train_step'],
+          #                             act['finalstate'],
+          #                             act['hiddens'],
+          #                             act['predict'], 
+          #                             self.merged_summary_op,
+          #                             self.grad_global_norm],
+          #                             feed_dict={act['X']:self.data[i]['inputs'], 
+          #                                       act['Y']:self.data[i]['outputs'],
+          #                                       self.learning_rate:self.adaptive_learning_rate(),
+          #                                       self.grad_norm_clip_val:self.adaptive_grad_norm_clip()
+          #                                       })            
           training_loss += tr_losses
+
           # self.sess.run(self.global_step)
-          if is_root:
+          if self.is_root:
             summary_writer.add_summary(summary, epochs)
           i +=1
           if self.is_root and verbose:
@@ -461,8 +467,11 @@ class FlipFlop:
           if epochs == 0:
             hidden.append(outputs)
           epochs +=1
+        # self.adaptive_learning_rate.update(tr_losses)
+        # self.adaptive_grad_norm_clip.update(ev_grad_global_norm)
         hidden.append(outputs)
-        if self.is_root: print('training finished') 
+        t2 = (dt.datetime.now()- t1).seconds
+        if self.is_root: print('training finished with time ',t2) 
 
         # if hvd.rank() == 0 :
         #   if(save):

@@ -12,40 +12,32 @@ from __future__ import print_function
 
 import numpy as np
 import os
-
+from FixedPointStore import *
 import tensorflow as tf
 import sys 
 from plot_utils import plot_fps
 
 sys.path.insert(0,'/home/joshi/fixed_point_edits')
 import matplotlib.pyplot as plt
-np.random.seed(400)
+np.random.seed(200)
 # import numpy as np
 import time
 from AdaptiveGradNormClip import AdaptiveGradNormClip
 from AdaptiveLearningRate import AdaptiveLearningRate
 from FixedPointStore import FixedPointStore
 
-# fps = FixedPointStore(num_inits = 1,
-# 					num_states= 1,
-# 					num_inputs = 1	)
-# dict_d = fps.restore('/home/joshi/fixed_point_edits/fps_saver/fixedPoint_unique.p')
-# fps.__dict__ = dict_d
-
-# plot_fps(fps,
-# 		hid,
-# 		plot_batch_idx=range(30),
-# 	    plot_start_time=10)
-from FlipFlop import FlipFlop
-# from FlipFlop_GPU import FlipFlop_GPU
-from FixedPointSearch import *
+import pickle 
+# from FlipFlop import FlipFlop
+# from FlipFlop_GPU import FlipFlopGPU
+# from FixedPointSearch import *
 
 
 
 #------------------------------Create Dataset-------------------------------------------------
 
 def create_data(rnn_object, save=True):
-	rnn_object.data_batches(80000, 8, save=save)
+	if save == True:
+		rnn_object.data_batches(80000, 32, save=True)
 	print('created the dataset')
 
 #-----------------------------Train and visualize--------------------------------------------------
@@ -64,52 +56,107 @@ def reload_from_chkpt(rnn_object, chkpt, plot=False):
 		plt.savefig(chkpt+'/outputs.png')
 		plt.close('all')
 	return lis
+#------------------------------------HYPS_______________________________________________	
+def hps_array():
+  arch  = ['Vanilla', 'UGRNN', 'GRU', 'LSTM']
+  activ = ['tanh' , 'relu']
+  units = [64, 128, 256 ]
+  l2_norm = [1e-5, 1e-4, 1e-3, 1e-2]
+  hps_dict = {'arch':arch,
+              'activ':activ,
+              'units':units,
+              'l2_norm':l2_norm}
+
+  hps_array = []
+  adp_lr = {'initial_rate': 1.0, 'min_rate': 1e-5}
+  for i in arch:
+    for j in activ:
+      for k in units:
+        for l in l2_norm:
+          hps_array.append({'arch':i,
+                            'activ':j,
+                            'units':k,
+                            'l2_norm':l,
+                            'al_hps':adp_lr})
+  return hps_array  
 
 #--------------------------------------Finding the fixed points----------------------------------------#
-def fixed_points(rnn_object, lis, path):
+def save_hidden_states(hid,path):
+
+    print(path)
+    dir_name = path+'/fps_saver/' 
+    if not os.path.exists(os.path.dirname(dir_name)):
+      os.makedirs(os.path.dirname(dir_name))
+    
+    filename  = dir_name+'hiddens_'+'.p'   
+    f =  open(filename,'wb')
+    # print(self.__dict__)
+    pickle.dump(hid,f)
+    f.close()
+    print('saved')
+
+def restore(path):
+	file = open(path,'rb')
+	restore_data = file.read()
+	file.close()
+	# print(type(pickle.loads(restore_data)))
+	# print((self.__dict__))
+	hid= pickle.loads(restore_data,encoding='latin1')
+	return(hid)
+
+def fixed_points(rnn_object):
 	n_bits = 3
 	inputs = np.zeros([1,n_bits])
+
+	# pathlist = os.listdir(os.getcwd()+'/trained')
+	rnn_object.get_path_for_saving()
+	chkptpath =  rnn_object.path
+	lis = reload_from_chkpt(rnn_object, chkptpath, plot=True)
+	save_hidden_states(lis['hiddens'], rnn_object.path)
 	fps = FixedPointSearch(rnn_object.c_type,
 							lis['hiddens'],
-							path, 
+							rnn_object.path, 
 							cell=rnn_object.graph['cell'],
 							sess=rnn_object.sess)
-	fps.sample_states(1000,lis['hiddens'],'GRU',0.5)
+	fps.sample_states(1024,lis['hiddens'],rnn_object.c_type,0.5)
 	fps.find_fixed_points(inputs, save = True)
+
+def plot_fps():
+	hid = restore('/home/joshi/fixed_point_edits/Vanilla_hps_states_64_l2_1e-05_tanh/fps_saver/hiddens_.p')
+
+	fps = FixedPointStore(num_inits = 1,
+					num_states= 1,
+					num_inputs = 1)
+	dict_d = fps.restore('/home/joshi/fixed_point_edits/Vanilla_hps_states_64_l2_1e-05_tanh/fps_saver/fixedPoint_unique.p')
+	# print(dict_d)
+	fps.__dict__ = dict_d
+
+	plot_fps(fps,
+			hid,
+			plot_batch_idx=range(30),
+		    plot_start_time=10)
+	
+
+
+
 
 def main():
 	n_bits = 3
 
-	rnn_object = FlipFlop()
 
-	hps_array = rnn_object.hps_array()
 
-	for i in range(len(hps_array)):
-		
-		if rnn_object.is_root or i==0:
-			print('the hps are ',hps_array[i])
+	hps_ = hps_array()
+	for i in range(len(hps_)):
 
-		# if hps_array[i]['arch'] =='Vanilla' or hps_array[i]['arch'] =='UGRNN':
-		# 	continue
+		if hps_[i]['arch'] =='LSTM':		
 
-		# elif hps_array[i]['arch'] == 'GRU' and hps_array[i]['activ'] == 'tanh':
-		# 	continue
+			rnn_object = FlipFlop(opt ='momentum',**hps_[i])
 
-		# else:
-		rnn_object.c_type = hps_array[i]['arch']
-		rnn_object.activation = hps_array[i]['activ']
-		rnn_object.state_size = hps_array[i]['units']
-		rnn_object.l2_loss = hps_array[i]['l2_norm']
+			train_network(rnn_object)
+			
 
-		# create_data(rnn_object)
 
-		# train_network(rnn_object)
-		# pathlist = os.listdir(os.getcwd()+'/trained')
-		rnn_object.get_path_for_saving()
-		chkptpath =  rnn_object.path
-		lis = reload_from_chkpt(rnn_object, chkptpath, plot=True)
 
-		fixed_points(rnn_object, lis , chkptpath)
 
 
 if __name__ == "__main__":

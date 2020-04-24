@@ -45,6 +45,8 @@ class FixedPointStore:
                inputs=None,
                F_xstar=None,
                qstar=None,
+               dtype = None,
+               # hiddens = None,
                eigval_J_xstar=None,
                eigvec_J_xstar=None,
                dq=None,
@@ -68,8 +70,10 @@ class FixedPointStore:
       self.num_states = num_states
       self.num_inits = num_inits
       self.num_inputs = num_inputs
+      # self.hiddens = hiddens
       
       self.tol_unique = tol_unique
+      self.dtype = dtype
       self.xstar = self._alloc_zeros([num_inits, num_states])
       self.x_init = self._alloc_zeros([num_inits, num_states])
       self.inputs = self._alloc_zeros([num_inits, num_inputs])
@@ -120,7 +124,9 @@ class FixedPointStore:
       self.tol_unique = tol_unique
       self.xstar = xstar
       self.x_init = x_init
+      self.dtype = dtype
       self.inputs = inputs
+      # self.hiddens = hiddens
       self.F_xstar = F_xstar
       self.qstar = qstar
       self.dq = dq
@@ -141,8 +147,10 @@ class FixedPointStore:
                        'dq':self.dq,
                        'n_iters':self.n_iters}
 
-  def _alloc_zeros(self, shape):
-    return np.zeros(shape)
+  def _alloc_zeros(self, shape, dtype=None):
+    if dtype == None:
+      dtype =self.dtype
+    return np.zeros(shape, dtype=dtype)
 
   def get_attrs(self, attr , fps):
     try:
@@ -229,17 +237,18 @@ class FixedPointStore:
 
 
   def decompose_jacobians(self, do_batch=True, str_prefix=''):
+    print('inside docomp jacobians')
     if self.has_decomposed_jacobians:
-      if self.is_root:
-        print('%Jacobians have been decomposed, not repeating. '% str_prefix )
+      # if self.is_root:
+      print('%Jacobians have been decomposed, not repeating. '% str_prefix )
       return 
-    
+    print('check 2')
     num = self.num_inits
     num_states = self.num_states
 
     if do_batch:
-      if self.is_root:
-        print('%Decomposing jacobians in a single batch.' % str_prefix)
+      # if self.is_root:
+      print('%sDecomposing jacobians in a single batch.' % str_prefix)
 
       valid_J_idx = ~np.any(np.isnan(self.J_xstar), axis=(1,2))
   
@@ -251,17 +260,17 @@ class FixedPointStore:
         e_vecs_unsrt = self._alloc_zeros((num,num_states,num_states),dtype=np.complex64)
 
         e_vals_unsrt[valid_J_idx],e_vecs_unsrt[valid_J_idx] = np.linalg.eig(self.J_xstar[valid_J_idx])
-
+      # print('check 3')
     else:
-      if self.is_root:
-        print('%Decomposing jacobians one at a time.' %str_prefix)
+      # if self.is_root:
+      print('%sDecomposing jacobians one at a time.' %str_prefix)
       e_vals = []
       e_vecs = []
       for J in self.J_xstar:
 
         if np.any(np.isnan(J)):
-          e_vals_i = self._alloc_zeros((num_states,))
-          e_vecs_i = self._alloc_zeros((num_states, num_states))
+          e_vals_i = self._alloc_zeros((num_states,),dtype=np.complex64)
+          e_vecs_i = self._alloc_zeros((num_states, num_states),dtype=np.complex64)
 
         else:
           e_vals_i, e_vecs_i = np.linalg.eig(J)
@@ -272,8 +281,9 @@ class FixedPointStore:
 
       e_vals_unsrt = np.concatenate(e_vals,axis=0)
       e_vecs_unsrt = np.concatenate(e_vecs,axis=0)
-    if self.is_root:
-      print('%sorting by Eigenvalues magnitude.' % str_prefix)
+    # print('check 4')
+    # if self.is_root:
+    print('%sSorting by Eigenvalues magnitude.' % str_prefix)
 
     sort_idx = np.argsort(np.abs(e_vals_unsrt))[:,::-1]
 
@@ -285,6 +295,7 @@ class FixedPointStore:
       sort_idx_k = sort_idx[k]
       self.eigval_J_xstar[k] = e_vals_unsrt[k][sort_idx_k]
     self.has_decomposed_jacobians = True
+    print('inside_decomp_jacob value = ',self.has_decomposed_jacobians)
 
 
   def __getitem__(self, index):
@@ -297,13 +308,14 @@ class FixedPointStore:
     F_xstar= self.index_(self.F_xstar, index)
     qstar  = self.index_(self.qstar, index)
     dq = self.index_(self.dq, index)
+    dtype = self.dtype
     n_iters = self.index_(self.n_iters, index)
     tol = self.tol_unique
     J_xstar = self.index_(self.J_xstar, index)
     dFdu = self.dFdu
     if self.has_decomposed_jacobians:
-      eigval_J_xstar = self._safe_index(self.eigval_J_xstar, index)
-      eigvec_J_xstar = self._safe_index(self.eigvec_J_xstar, index)
+      eigval_J_xstar = self.index_(self.eigval_J_xstar, index)
+      eigvec_J_xstar = self.index_(self.eigvec_J_xstar, index)
     else:
       eigval_J_xstar = None
       eigvec_J_xstar = None
@@ -313,6 +325,7 @@ class FixedPointStore:
                              inputs = inputs,
                              J_xstar= J_xstar,
                              dFdu = dFdu,
+                             dtype = dtype,
                              eigval_J_xstar = eigval_J_xstar,
                              eigvec_J_xstar = eigvec_J_xstar,
                              F_xstar = F_xstar,
