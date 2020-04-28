@@ -16,16 +16,16 @@ import absl
 import tensorflow as tf
 from tensorflow.python.ops import parallel_for as pfor
 
-from FlipFlop import FlipFlop
+# from FlipFlop import FlipFlop
 from FixedPointSearch import *
 from FixedPointStore import *
-import cProfile
+# import horovod.tensorflow as hvd
 # %tensorflow_version 1.x magic
 import matplotlib.pyplot as plt
 import numpy.random as nrand
 import pickle
 np.random.seed(400)
-from plot_utils import plot_fps
+# from plot_utils import plot_fps
 # import numpy as np
 import time
 from AdaptiveGradNormClip import AdaptiveGradNormClip
@@ -613,7 +613,7 @@ class FixedPoints(object):
 
         return result
 
-    def __contains__(self, xstar):
+    def __contains__(self, fp):
         '''Checks whether a specified fixed point is contained in the object.
 
         Args:
@@ -623,7 +623,7 @@ class FixedPoints(object):
         Returns:
             bool indicating whether self.xstar contains any fixed point with a maximum elementwise difference from xstar that is less than tol_unique.
         '''
-        idx = self.find(xstar)
+        idx = self.find(fp)
 
         return idx.size > 0
 
@@ -718,7 +718,7 @@ N_INPUTS = 1
 n_tests = len(N_HIDDEN_LIST)
 fpf_hps = {'do_rerun_q_outliers': True, 'verbose': False}
 session = tf.Session()
-TEST_PATH = '/home/joshi/fixed_point_edits/test/ground-truth/'
+TEST_PATH = os.getcwd()+'/test/ground-truth/'
 did_pass_tests1 = [False] * n_tests
 did_pass_tests2 = [False] * n_tests
 
@@ -738,19 +738,19 @@ for test_idx in range(n_tests):
     ground_truth_fps.restore(ground_truth_path)
     dict_d = ground_truth_fps.__dict__
     ground_truth_fps = FixedPointStore(xstar=dict_d['xstar'],
-                x_init=dict_d['x_init'],
-                inputs=dict_d['inputs'],
-                F_xstar = dict_d['F_xstar'],
-                qstar = dict_d['qstar'],
-                dq = dict_d['dq'],
-                n_iters=dict_d['n_iters'],
-                J_xstar=dict_d['J_xstar'],
-                num_inits = dict_d['n'],
-                num_states = dict_d['n_states'],
-                num_inputs = dict_d['n_inputs'])
+                                        alloc_zeros = False,
+                                        x_init=dict_d['x_init'],
+                                        inputs=dict_d['inputs'],
+                                        F_xstar = dict_d['F_xstar'],
+                                        qstar = dict_d['qstar'],
+                                        dq = dict_d['dq'],
+                                        n_iters=dict_d['n_iters'],
+                                        J_xstar=dict_d['J_xstar'],
+                                        num_inits = dict_d['n'],
+                                        num_states = dict_d['n_states'],
+                                        num_inputs = dict_d['n_inputs'])
     # print('step1')
-    print(n_hidden)
-    print(ground_truth_fps.xstar.shape)
+
     # *************************************************************************
     # STEP 1: Create an RNN with prespecified parameters **********************
     # *************************************************************************
@@ -763,7 +763,7 @@ for test_idx in range(n_tests):
     # *************************************************************************
 
     # Setup the fixed point finder
-    fpf = FixedPointSearch(states=None,cell=rnn_cell,ctype="Vanilla",sess=session)
+    fpf = FixedPointSearch(states=None,cell=rnn_cell,ctype="Vanilla",sess=session,savepath=None)
     fpf.sampled_states = initial_states
     # Run the fixed point finder
     unique_fps, all_fps = fpf.find_fixed_points(inputs)
@@ -777,7 +777,7 @@ for test_idx in range(n_tests):
     # (according to the ground truth set).
     n_correct = 0
     for idx_unique in range(unique_fps.num_inits):
-
+        print(unique_fps[idx_unique])
         if unique_fps[idx_unique] in ground_truth_fps:
             n_correct += 1
 

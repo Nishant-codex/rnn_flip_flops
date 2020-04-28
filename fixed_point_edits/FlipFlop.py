@@ -226,11 +226,11 @@ class FlipFlop:
         train_op = optimizer.minimize(loss, global_step=self.global_step)
 
       elif self.opt == 'momentum':
-        decay = tf.train.exponential_decay(0.1, self.global_step, 20000, 0.99)
-        optimizer = tf.train.MomentumOptimizer(decay, 0.001)
+        decay = tf.train.exponential_decay(0.01, self.global_step, 20000, 0.99)
+        optimizer = tf.train.MomentumOptimizer(decay*hvd.size(), 0.01)
         # optimizer = tf.train.AdamOptimizer(decay*hvd.size(),epsilon=1e-1)
         optimizer = hvd.DistributedOptimizer(optimizer)
-        gradients, variables = zip(*optimizer.compute_gradients(loss))
+        gradients, variables = zip(*optimizer.compute_gradients(loss,tf.trainable_variables()))
         gradients = [None if gradient is None else tf.clip_by_norm(gradient, 10.0) for gradient in gradients]
         train_op = optimizer.apply_gradients(zip(gradients, variables), global_step=self.global_step)
 
@@ -482,7 +482,7 @@ class FlipFlop:
 
       n_hidden = self.state_size
       [self.batch_size, self.time, self.bits] = np.array(self.test_data['inputs']).shape
-      initial_state = graph['cell'].zero_state(a.batch_size, dtype=tf.float32)
+      initial_state = graph['cell'].zero_state(self.batch_size, dtype=tf.float32)
 
       ''' Add ops to the graph for getting the complete LSTM state
       (i.e., hidden and cell) at every timestep.'''
@@ -498,7 +498,7 @@ class FlipFlop:
           _, states = graph['cell'](input_,cur_state_min_one)
           full_state_list.append(states)
       
-      print(states.c)
+      # print(states.c)
 
       '''Evaluate those ops'''
       ops_to_eval = [full_state_list]
@@ -551,10 +551,10 @@ class FlipFlop:
     
       if(self.c_type=='LSTM'):
 
-        return({'hiddens':self.lstm_hiddens(graph),'predictions':outputs,'loss':losses})
+        return({'hiddens':self.lstm_hiddens(self.graph),'predictions':outputs,'loss':losses,'truth':self.test_data['outputs'],'inputs':self.test_data['inputs']})
         
       else:
         
-        return({'hiddens':hiddens,'predictions':outputs,'loss':losses, 'truth':self.test_data['outputs']})
+        return({'hiddens':hiddens,'predictions':outputs,'loss':losses, 'truth':self.test_data['outputs'],'inputs':self.test_data['inputs']})
 
 

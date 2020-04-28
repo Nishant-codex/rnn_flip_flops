@@ -13,7 +13,7 @@ from tensorflow.python.ops import parallel_for as pfor
 from FixedPointStore import *
 import tensorflow as tf
 
-import horovod.tensorflow as hvd
+# import horovod.tensorflow as hvd
 
 #import cProfile
 # %tensorflow_version 1.x magic
@@ -37,8 +37,8 @@ class FixedPointSearch:
               sess=None,
               max_iters = 5000,
               max_n_unique = np.inf,
-              tol_dq = 1e-12,
-              tol_q = 1e-20,
+              tol_q = 1e-12,
+              tol_dq = 1e-20,
               adaptive_learning_rate_hps = {},
               grad_norm_clip_hps = {},
               adam_optimizer_hps = {'epsilon': 0.01},
@@ -85,7 +85,7 @@ class FixedPointSearch:
     else:
       return np.concatenate((c,h),axis=axis)
 
-  def convert_to_lstm(self, lstm):
+  def convert_to_lstm_tuples(self, lstm):
 
     array = lstm
     rank = len(array.shape)
@@ -108,12 +108,18 @@ class FixedPointSearch:
     if self.ctype == 'LSTM':
       c_h_init = self.convert_from_lstm_tuples(init_states)
       x = tf.Variable(c_h_init,dtype=tf.float32)
-      x_rnn_cell = self.convert_to_lstm(x)
+      x_rnn_cell = self.convert_to_lstm_tuples(x)
     else:
       x = tf.Variable(init_states,dtype=tf.float32)
       x_rnn_cell = x
     return x,x_rnn_cell
 
+  def maybe_convert(self, x_init):
+    if self.ctype=='LSTM':
+      return self.convert_from_lstm_tuples(x_init)
+    else:
+      return x_init
+  
   def get_rnn(self, init_states, inputs):
     # print('inside get rnn')
     x, x_rnn = self.build_vars(init_states)
@@ -129,6 +135,7 @@ class FixedPointSearch:
     init = tf.variables_initializer(var_list=[x])
     self.sess.run(init)
     return x, F
+
   def compute_input_jacobians(self, fps):
     def grab_RNN_for_dFdu(initial_states, inputs):
       
@@ -151,7 +158,7 @@ class FixedPointSearch:
     inputs_np = fps.inputs
 
     if self.ctype == 'LSTM':
-      states_np = self.convert_from_lstm_tuples(fps.xstar)
+      states_np = self.convert_to_lstm_tuples(fps.xstar)
     else:
       states_np = fps.xstar
 
@@ -173,7 +180,7 @@ class FixedPointSearch:
     if self.ctype == 'LSTM':
       # print('line2')
     
-      states_np = self.convert_from_lstm_tuples(fps.xstar)
+      states_np = self.convert_to_lstm_tuples(fps.xstar)
       # print('line3')
     else:
       # print('line4')
@@ -197,23 +204,37 @@ class FixedPointSearch:
     if self.is_root:
       print('out of batch jacobians')
     return J_np, J_tf
+  def _get_valid_mask(self, n_batch, n_time, valid_bxt =None):
+      if valid_bxt is None:
+          valid_bxt = np.ones((n_batch, n_time), dtype=np.bool)
+      else:
 
+          assert (valid_bxt.shape[0] == n_batch and
+              valid_bxt.shape[1] == n_time),\
+              ('valid_bxt.shape should be %s, but is %s'
+               % ((n_batch, n_time), valid_bxt.shape))
+
+          if not valid_bxt.dtype == np.bool:
+              valid_bxt = valid_bxt.astype(np.bool)
+
+      return valid_bxt
   def sample_states(self, init_size, state_matrix,c_type, noise):
 
     if c_type =='LSTM':
-      matrix = convert_from_lstm_tuples(state_matrix)
+      matrix = self.convert_from_lstm_tuples(state_matrix)
     else:
       matrix = state_matrix
     
     [n_batch, n_time, n_states] = matrix.shape
 
+    # valid_bxt = self._get_valid_mask(n_batch, n_time, valid_bxt = None)
     valid_idx = np.ones((n_batch, n_time), dtype=np.bool)
 
-    trial_idx, time_idx = np.nonzero(valid_idx)
+    (trial_idx, time_idx) = np.nonzero(valid_idx)
 
-    min_index = min(len(trial_idx),len(time_idx))
-    
-    sample_indices = nrand.RandomState(200).randint(0, high = min_index, size = [init_size])
+    # min_index = min(len(trial_idx),len(time_idx))
+    max_sample_index = len(trial_idx)
+    sample_indices = nrand.RandomState(200).randint(0, high = max_sample_index, size = init_size)
   
     states = np.zeros([init_size, n_states])
 
@@ -223,17 +244,17 @@ class FixedPointSearch:
       states[i,:] = matrix[init_idx,t_idx,:]
 
     if noise>0.0:
-      states = states + np.random.randn(*states.shape)
+      states = states + noise*np.random.randn(*states.shape)
 
     if c_type == 'LSTM':
       # print('this')
-      self.sampled_states = convert_to_lstm(states)
+      self.sampled_states = self.convert_to_lstm_tuples(states)
     else:
       self.sampled_states = states
 
   def identify_distance_non_outliers(self, fps, initial_states, dist_thresh):
     if self.ctype == 'LSTM':
-        initial_states = convert_from_lstm_tuples(initial_states)
+        initial_states = self.convert_from_lstm_tuples(initial_states)
 
     num_inits = initial_states.shape[0]
     n_fps = fps.num_inits
@@ -280,7 +301,7 @@ class FixedPointSearch:
   def _get_rnncell_compatible_states(self, states):
 
     if self.ctype == 'LSTM':
-        return self.convert_to_lstm(states)
+        return self.convert_to_lstm_tuples(states)
     else:
         return states
 
@@ -336,14 +357,7 @@ class FixedPointSearch:
 
   def run_iteration_loops(self, states, inputs, init_array):
 
-    if self.ctype == 'LSTM':
-      n = (states.c.shape[0], states.c.shape[1]*2)[0]
-      _state = convert_from_lstm_tuples(states)
-    else:
-      n = states.shape[0]
-      _state = states
-
-    x, F_cell = self.get_rnn(_state, inputs)
+    x, F_cell = self.get_rnn(states, inputs)
     q = 0.5 * tf.reduce_sum(tf.square(F_cell - x ))
 
     q_scalar = tf.reduce_mean(q)
@@ -370,7 +384,7 @@ class FixedPointSearch:
 
     # adam_hps = {'epsilon': 0.01}
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate, **self.adam_optimizer_hps)
-    optimizer = hvd.DistributedOptimizer(optimizer)
+    # optimizer = hvd.DistributedOptimizer(optimizer)
     train = optimizer.apply_gradients(zip(grads_to_apply, [x]))
 
     # Initialize x and AdamOptimizer's auxiliary variables
@@ -427,7 +441,7 @@ class FixedPointSearch:
                                   inputs = inputs,
                                   dtype = self.dtype,
                                   alloc_zeros = False, 
-                                  x_init = states,
+                                  x_init = self.maybe_convert(states),
                                   F_xstar=ev_F, 
                                   qstar= ev_q,
                                   dq=ev_dq,
@@ -486,8 +500,8 @@ class FixedPointSearch:
       grads_to_apply = clipped_grads
 
       # adam_hps = {'epsilon': 0.01}
-      optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate * hvd.size(), **self.adam_optimizer_hps)
-      optimizer = hvd.DistributedOptimizer(optimizer)
+      optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate , **self.adam_optimizer_hps)
+      # optimizer = hvd.DistributedOptimizer(optimizer)#* hvd.size()
       train = optimizer.apply_gradients(zip(grads_to_apply, [x]))
 
       uninitialized_vars = optimizer.variables()
@@ -553,7 +567,7 @@ class FixedPointSearch:
                                 xstar = ev_x,
                                 alloc_zeros = False, 
                                 dtype =self.dtype,
-                                x_init = initial_states,
+                                x_init = self.maybe_convert(initial_states),
                                 inputs = inputs,
                                 F_xstar=ev_F, 
                                 qstar= ev_q,
@@ -581,6 +595,7 @@ class FixedPointSearch:
     for i in range(num_inits):
       index = slice(i, i+1)
       state_inst_i  = self.return_index(states, index)
+      print(type(state_inst_i))
       input_inst_i  = inputs[index, :]
       if self.is_root : print('state number ',i)
       if fresh_start and i == 0 :
@@ -598,12 +613,13 @@ class FixedPointSearch:
 
   def find_fixed_points(self, inputs, save=False):
     
-    hvd.init()
+    # hvd.init()
 
-    self.is_root = hvd.rank() == 0
+    # self.is_root = hvd.rank() == 0
     if self.ctype == 'LSTM':
       n = (self.sampled_states.c.shape[0],self.sampled_states.c.shape[1]*2)[0]
-      _state = convert_from_lstm_tuples(self.sampled_states)
+      # _state = self.convert_from_lstm_tuples(self.sampled_states)
+      _state = self.sampled_states
     else: 
       n = self.sampled_states.shape[0]
       _state = self.sampled_states
