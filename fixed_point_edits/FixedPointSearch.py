@@ -13,7 +13,7 @@ from tensorflow.python.ops import parallel_for as pfor
 from FixedPointStore import *
 import tensorflow as tf
 
-# import horovod.tensorflow as hvd
+import horovod.tensorflow as hvd
 
 #import cProfile
 # %tensorflow_version 1.x magic
@@ -204,20 +204,7 @@ class FixedPointSearch:
     if self.is_root:
       print('out of batch jacobians')
     return J_np, J_tf
-  def _get_valid_mask(self, n_batch, n_time, valid_bxt =None):
-      if valid_bxt is None:
-          valid_bxt = np.ones((n_batch, n_time), dtype=np.bool)
-      else:
 
-          assert (valid_bxt.shape[0] == n_batch and
-              valid_bxt.shape[1] == n_time),\
-              ('valid_bxt.shape should be %s, but is %s'
-               % ((n_batch, n_time), valid_bxt.shape))
-
-          if not valid_bxt.dtype == np.bool:
-              valid_bxt = valid_bxt.astype(np.bool)
-
-      return valid_bxt
   def sample_states(self, init_size, state_matrix,c_type, noise):
 
     if c_type =='LSTM':
@@ -227,14 +214,13 @@ class FixedPointSearch:
     
     [n_batch, n_time, n_states] = matrix.shape
 
-    # valid_bxt = self._get_valid_mask(n_batch, n_time, valid_bxt = None)
     valid_idx = np.ones((n_batch, n_time), dtype=np.bool)
 
-    (trial_idx, time_idx) = np.nonzero(valid_idx)
+    trial_idx, time_idx = np.nonzero(valid_idx)
 
-    # min_index = min(len(trial_idx),len(time_idx))
-    max_sample_index = len(trial_idx)
-    sample_indices = nrand.RandomState(200).randint(0, high = max_sample_index, size = init_size)
+    min_index = min(len(trial_idx),len(time_idx))
+    
+    sample_indices = nrand.RandomState(200).randint(0, high = min_index, size = [init_size])
   
     states = np.zeros([init_size, n_states])
 
@@ -357,6 +343,45 @@ class FixedPointSearch:
 
   def run_iteration_loops(self, states, inputs, init_array):
 
+    def print_update(iter_count, q, dq, lr, is_final=False):
+
+        t = time.time()
+        t_elapsed = t - t_start
+        avg_iter_time = t_elapsed / iter_count
+
+        if is_final:
+            delimiter = '\n\t\t'
+            print('\t\t%d iters%s' % (iter_count, delimiter), end='')
+        else:
+            delimiter = ', '
+            print('\tIter: %d%s' % (iter_count, delimiter), end='')
+
+        if q.size == 1:
+            print('q = %.2e%sdq = %.2e%s' %
+                  (q, delimiter, dq, delimiter), end='')
+        else:
+            mean_q = np.mean(q)
+            std_q = np.std(q)
+
+            mean_dq = np.mean(dq)
+            std_dq = np.std(dq)
+
+            print('q = %.2e +/- %.2e%s'
+                  'dq = %.2e +/- %.2e%s' %
+                  (mean_q, std_q, delimiter, mean_dq, std_dq, delimiter),
+                  end='')
+
+        print('learning rate = %.2e%s' % (lr, delimiter), end='')
+
+        print('avg iter time = %.2e sec' % avg_iter_time, end='')
+
+        if is_final:
+            print('') # Just for the endline
+        else:
+            print('.')
+
+
+
     x, F_cell = self.get_rnn(states, inputs)
     q = 0.5 * tf.reduce_sum(tf.square(F_cell - x ))
 
@@ -384,7 +409,7 @@ class FixedPointSearch:
 
     # adam_hps = {'epsilon': 0.01}
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate, **self.adam_optimizer_hps)
-    # optimizer = hvd.DistributedOptimizer(optimizer)
+    optimizer = hvd.DistributedOptimizer(optimizer)
     train = optimizer.apply_gradients(zip(grads_to_apply, [x]))
 
     # Initialize x and AdamOptimizer's auxiliary variables
@@ -435,7 +460,11 @@ class FixedPointSearch:
         adaptive_learning_rate.update(ev_q_scalar)
         adaptive_grad_norm_clip.update(ev_grad_norm)
         iter_count += 1
-    # print('outside the loop')
+    # print_update(iter_count,
+    #              ev_q, ev_dq,
+    #              iter_learning_rate,
+    #              is_final=True)
+
     iter_count = np.tile(iter_count, ev_q.shape)
     fixed_point = FixedPointStore(xstar = ev_x,
                                   inputs = inputs,
@@ -464,6 +493,42 @@ class FixedPointSearch:
       return states[index]
 
   def run_joint_optimization(self, initial_states, inputs):
+      def print_update(iter_count, q, dq, lr, is_final=False):
+
+          t = time.time()
+          t_elapsed = t - t_start
+          avg_iter_time = t_elapsed / iter_count
+
+          if is_final:
+              delimiter = '\n\t\t'
+              print('\t\t%d iters%s' % (iter_count, delimiter), end='')
+          else:
+              delimiter = ', '
+              print('\tIter: %d%s' % (iter_count, delimiter), end='')
+
+          if q.size == 1:
+              print('q = %.2e%sdq = %.2e%s' %
+                    (q, delimiter, dq, delimiter), end='')
+          else:
+              mean_q = np.mean(q)
+              std_q = np.std(q)
+
+              mean_dq = np.mean(dq)
+              std_dq = np.std(dq)
+
+              print('q = %.2e +/- %.2e%s'
+                    'dq = %.2e +/- %.2e%s' %
+                    (mean_q, std_q, delimiter, mean_dq, std_dq, delimiter),
+                    end='')
+
+          print('learning rate = %.2e%s' % (lr, delimiter), end='')
+
+          print('avg iter time = %.2e sec' % avg_iter_time, end='')
+
+          if is_final:
+              print('') # Just for the endline
+          else:
+              print('.')    
 
       n, _ = self.find_shape(initial_states)
 
@@ -501,7 +566,7 @@ class FixedPointSearch:
 
       # adam_hps = {'epsilon': 0.01}
       optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate , **self.adam_optimizer_hps)
-      # optimizer = hvd.DistributedOptimizer(optimizer)#* hvd.size()
+      optimizer = hvd.DistributedOptimizer(optimizer)
       train = optimizer.apply_gradients(zip(grads_to_apply, [x]))
 
       uninitialized_vars = optimizer.variables()
@@ -559,6 +624,11 @@ class FixedPointSearch:
           adaptive_grad_norm_clip.update(ev_grad_norm)
           iter_count += 1
       # print('outside the loop')
+      # print_update(iter_count,
+      #              ev_q, ev_dq,
+      #              iter_learning_rate,
+      #              is_final=True)
+      # print(ev_x)
       iter_count = np.tile(iter_count, ev_q.shape)
       fixed_point = FixedPointStore(
           # num_states = init_array['num_states'],
@@ -595,7 +665,7 @@ class FixedPointSearch:
     for i in range(num_inits):
       index = slice(i, i+1)
       state_inst_i  = self.return_index(states, index)
-      print(type(state_inst_i))
+      # print(type(state_inst_i))
       input_inst_i  = inputs[index, :]
       if self.is_root : print('state number ',i)
       if fresh_start and i == 0 :
@@ -613,9 +683,9 @@ class FixedPointSearch:
 
   def find_fixed_points(self, inputs, save=False):
     
-    # hvd.init()
+    hvd.init()
 
-    # self.is_root = hvd.rank() == 0
+    self.is_root = hvd.rank() == 0
     if self.ctype == 'LSTM':
       n = (self.sampled_states.c.shape[0],self.sampled_states.c.shape[1]*2)[0]
       # _state = self.convert_from_lstm_tuples(self.sampled_states)
@@ -697,4 +767,5 @@ class FixedPointSearch:
       unique_fps.save(self.savepath, 'unique')          
     if self.is_root:
       print('coming out')
+      print('final size ',unique_fps.num_inits)
     return unique_fps, all_fps

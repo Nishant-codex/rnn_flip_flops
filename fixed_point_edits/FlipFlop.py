@@ -23,7 +23,7 @@ class FlipFlop:
 #Hyperparameters
     
     hyp_dict = \
-    {'time' : 256,
+    {'time' : 100,
     'bits' : 3 ,
     'num_steps' : 6,
     'batch_size' : 64,
@@ -63,7 +63,7 @@ class FlipFlop:
         opt = 'momentum',
         **hps):
       
-        self.seed = _seed
+        self.seed = hps['seed']
         self.time = time
         self.bits = bits
 
@@ -80,8 +80,6 @@ class FlipFlop:
         self.learning_rate = learning_rate
         self.p = p 
         self.opt = opt 
-        self.adaptive_learning_rate = AdaptiveLearningRate(**{})#hps['al_hps'])
-        self.adaptive_grad_norm_clip = AdaptiveGradNormClip(**{})
         self.dtype = tf.float32
         self.graph = 0
         self.grad_norm_clip_val = None
@@ -104,24 +102,28 @@ class FlipFlop:
 
     def flip_flop(self, plot=False):
     
-      inputs = []
-      outputs= []
-      for batch in range(self.batch_size):
-        a = np.random.binomial(1,self.p,size=[self.bits, self.time])
-        b = np.random.binomial(1,self.p,size=[self.bits, self.time])
-        inp_= a-b
-        last = 1
-        out_ = np.ones_like(inp_)
-        for i in range(self.bits):
-          for m in range(self.time):
-            a = inp_[i,m]
-            if a !=0:
-              last = a
-            out_[i,m] = last
-        inp_inv = inp_.T
-        out_inv = out_.T
-        inputs.append(inp_inv)
-        outputs.append(out_inv)
+      unsigned_inp = np.random.binomial(1,0.2,[self.batch_size,self.time,self.bits])
+      unsigned_out = 2*np.random.binomial(1,0.5,[self.batch_size,self.time,self.bits]) -1 
+
+
+
+      inputs = np.multiply(unsigned_inp,unsigned_out)
+      inputs[:,0,:] = 1
+      output = np.zeros_like(inputs)
+      for trial_idx in range(self.batch_size):
+          for bit_idx in range(self.bits):
+              input_ = np.squeeze(inputs[trial_idx,:, bit_idx])
+              t_flip = np.where(input_ != 0)
+              for flip_idx in range(np.size(t_flip)):
+                  # Get the time of the next flip
+                  t_flip_i = t_flip[0][flip_idx]
+
+                  '''Set the output to the sign of the flip for the
+                  remainder of the trial. Future flips will overwrite future
+                  output'''
+                  output[trial_idx, t_flip_i:, bit_idx] = \
+                      inputs[trial_idx, t_flip_i, bit_idx]
+
       if(plot):
         plt.plot(inputs[1][:,0])
         plt.plot(outputs[1][:,0])
@@ -138,48 +140,8 @@ class FlipFlop:
         plt.xlabel("time")
         plt.ylabel("Bit 2")
         plt.show()
-      return({'inputs':np.array(inputs),'outputs':np.array(outputs)})
+      return({'inputs':inputs ,'outputs': output})
     
-    def data_batches(self,num_batches, num_processes, save =False):
-      batch_list = []
-      t1 = round(time.time()//1e6)
-      total = 0
-      n = 0
-      num_division = num_batches // num_processes
-      print(num_division)
-      for i in range(num_batches):
-        print( 'iteration # ',i)
-        single_batch = self.flip_flop()
-        batch_list.append(single_batch)
-        t2 = round((time.time()-t1)//1e6, 3)
-        total +=t2
-
-        t1 = t2
-        if (i+1) % num_division==0:
-
-          self.save_data(batch_list, n)
-          n+=1
-          batch_list = []
-
-      print('total time %f' %total)
-      return batch_list
-      
-    def save_data(self, array , i):
-      dir_name = os.getcwd()+'/data_'+str(self.seed)+'/'
-      print(dir_name)
-      if not os.path.exists(os.path.dirname(dir_name)):
-        os.makedirs(os.path.dirname(dir_name))
-
-      filename  = dir_name+'data'+str(i)+'.npy'   
-      f =  open(filename,'wb')
-      np.save(f, np.array(array) ,allow_pickle=True)
-
-    def restore_data(self, path):
-      file = open(path,'rb')
-      restore_data = np.load(file, allow_pickle=True)
-      # file.close()
-      # data = pickle.loads(restore_data,encoding='latin1')
-      return restore_data
 
     def reset_graph(self):
         if 'sess' in globals() and self.sess:
@@ -188,54 +150,58 @@ class FlipFlop:
 
     def setup_optimizer(self, loss):
 
-      # with tf.variable_scope('record' , trainable = False, reuse = False):
-      #   self.global_step = tf.Variable( 0, name='global_step', trainable=False, dtype=tf.int32)
-
-      # vars_to_train = tf.trainable_variables()
-
-      # with tf.variable_scope('optimizer', reuse=False):
-
-      #   # Gradient clipping
-      #   grads = tf.gradients(loss, vars_to_train)
-
-      #   self.grad_norm_clip_val = tf.placeholder(self.dtype, name='grad_norm_clip_val')
-
-      #   clipped_grads, self.grad_global_norm = tf.clip_by_global_norm(grads, self.grad_norm_clip_val)
-
-      #   clipped_grad_global_norm = tf.global_norm(clipped_grads)
-
-      #   clipped_grad_norm_diff = self.grad_global_norm - clipped_grad_global_norm
-
-      #   zipped_grads = zip(clipped_grads, vars_to_train)
-
-      #   self.learning_rate = tf.placeholder(self.dtype, name='learning_rate')
-        
-      #   adam_hps =  {'epsilon': 0.01,
-      #               'beta1': 0.9,
-      #               'beta2': 0.999,
-      #               'use_locking': False,
-      #               'name': 'Adam'}
-      #   if self.opt == 'adam':
-      #     optimizer = tf.train.AdamOptimizer(learning_rate = self.learning_rate*hvd.size(), **adam_hps)
-      #     optimizer = hvd.DistributedOptimizer(optimizer)
-      #     train_op = optimizer.apply_gradients(zipped_grads, global_step=self.global_step)
-
-      if self.opt == 'norm':
+      if self.opt == 'adam':
         optimizer = tf.train.AdagradOptimizer(0.001*hvd.size())
         optimizer = hvd.DistributedOptimizer(optimizer)
         train_op = optimizer.minimize(loss, global_step=self.global_step)
 
       elif self.opt == 'momentum':
-        decay = tf.train.exponential_decay(0.01, self.global_step, 20000, 0.99)
-        optimizer = tf.train.MomentumOptimizer(decay*hvd.size(), 0.01)
+        decay = tf.train.exponential_decay(1e-02, self.global_step, 1, 0.9)
+        optimizer = tf.train.MomentumOptimizer(decay*hvd.size(), 0.5)
         # optimizer = tf.train.AdamOptimizer(decay*hvd.size(),epsilon=1e-1)
-        optimizer = hvd.DistributedOptimizer(optimizer)
+        optimizer = hvd.DistributedOptimizer( optimizer)
         gradients, variables = zip(*optimizer.compute_gradients(loss,tf.trainable_variables()))
-        gradients = [None if gradient is None else tf.clip_by_norm(gradient, 10.0) for gradient in gradients]
+        gradients = [None if gradient is None else tf.clip_by_norm(gradient, 2.0) for gradient in gradients]
         train_op = optimizer.apply_gradients(zip(gradients, variables), global_step=self.global_step)
 
       return train_op
 
+    def is_lstm(self,x):
+      if isinstance(x, tf.nn.rnn_cell.BasicLSTMCell):
+
+        return True
+      if isinstance(x, tf.nn.rnn_cell.LSTMStateTuple):
+        return True
+
+      return False
+
+    def unroll_LSTM(self,lstm_cell, inputs, initial_state):
+
+      assert (self.is_lstm(lstm_cell)),('lstm_cell is not an LSTM.')
+      assert (self.is_lstm(initial_state)),('initial_state is not an LSTMStateTuple.')
+
+      ''' Add ops to the graph for getting the complete LSTM state
+      (i.e., hidden and cell) at every timestep.'''
+      n_time = inputs.shape[1].value
+      hidden_list = []
+      cell_list = []
+
+      prev_state = initial_state
+
+      for t in range(n_time):
+
+          input_ = inputs[:,t,:]
+
+          _, state = lstm_cell(input_, prev_state)
+
+          hidden_list.append(state.h)
+          cell_list.append(state.c)
+          prev_state = state
+
+      c = tf.stack(cell_list, axis=1)
+      h = tf.stack(hidden_list, axis=1)
+
+      return tf.nn.rnn_cell.LSTMStateTuple(c=c, h=h)    
     
     def setup_model(self):
 
@@ -246,15 +212,15 @@ class FlipFlop:
     
       if self.c_type == 'Vanilla':
         if self.activation == 'tanh':
-          self.cell = tf.contrib.rnn.BasicRNNCell(self.state_size,reuse=tf.AUTO_REUSE, activation=tf.nn.tanh)
+          self.cell = tf.nn.rnn_cell.BasicRNNCell(self.state_size,reuse=tf.AUTO_REUSE, activation=tf.nn.tanh)
         else:
-          self.cell = tf.contrib.rnn.BasicRNNCell(self.state_size,reuse=tf.AUTO_REUSE, activation=tf.nn.relu)
+          self.cell = tf.nn.rnn_cell.BasicRNNCell(self.state_size,reuse=tf.AUTO_REUSE, activation=tf.nn.relu)
 
       if self.c_type == 'GRU':
         if self.activation == 'tanh':
-          self.cell = tf.contrib.rnn.GRUCell(self.state_size,reuse=tf.AUTO_REUSE, activation=tf.nn.tanh)
+          self.cell = tf.nn.rnn_cell.GRUCell(self.state_size,reuse=tf.AUTO_REUSE, activation=tf.nn.tanh)
         else:
-          self.cell = tf.contrib.rnn.GRUCell(self.state_size,reuse=tf.AUTO_REUSE, activation=tf.nn.relu)
+          self.cell = tf.nn.rnn_cell.GRUCell(self.state_size,reuse=tf.AUTO_REUSE, activation=tf.nn.relu)
 
       if self.c_type == 'UGRNN':
         if self.activation == 'tanh':
@@ -264,25 +230,32 @@ class FlipFlop:
 
       if self.c_type == 'LSTM':
         if self.activation == 'tanh':
-          self.cell = tf.contrib.rnn.LSTMCell(self.state_size,reuse=tf.AUTO_REUSE,state_is_tuple=True, activation=tf.nn.tanh)
+          self.cell = tf.nn.rnn_cell.BasicLSTMCell(self.state_size,reuse=tf.AUTO_REUSE,state_is_tuple=True, activation=tf.nn.tanh)
         else:
-          self.cell = tf.contrib.rnn.LSTMCell(self.state_size,reuse=tf.AUTO_REUSE,state_is_tuple=True, activation=tf.nn.relu)
-
+          self.cell = tf.nn.rnn_cell.BasicLSTMCell(self.state_size,reuse=tf.AUTO_REUSE,state_is_tuple=True, activation=tf.nn.relu)
 
       init_state = self.cell.zero_state(self.batch_size, dtype=tf.float32)
+
+      if self.c_type == 'LSTM':
+        rnn_outputs = self.unroll_LSTM(self.cell,x,init_state)
+        hiddens = rnn_outputs.h
+      else:
+        rnn_outputs, final_state = tf.nn.dynamic_rnn(self.cell, x, initial_state=init_state,)
+        hiddens = rnn_outputs
     
-      rnn_outputs, final_state = tf.nn.dynamic_rnn(self.cell, x, initial_state=init_state,)
     
-      """
-      rnn_outputs gives out rnn hidden states ht which is of the size [batch_size, timestep, state_size]
-    
-      """
+      scale = 1.0 / np.sqrt(self.state_size)
+      W = np.multiply(scale,np.random.randn(self.state_size, self.bits))
+      b = np.zeros(self.bits)
+      # with tf.variable_scope('losses',reuse=tf.AUTO_REUSE):
+      #     W = tf.get_variable('W', [self.state_size , self.bits])
+      #     b = tf.get_variable('b', [self.bits], initializer=tf.constant_initializer(0.0))
+
       with tf.variable_scope('losses',reuse=tf.AUTO_REUSE):
-          W = tf.get_variable('W', [self.state_size , self.bits])
-          b = tf.get_variable('b', [self.bits], initializer=tf.constant_initializer(0.0))
-      rnn_outputs_ = tf.reshape(rnn_outputs, [-1, self.state_size])
-    
-      logits = tf.tensordot(rnn_outputs_,W,axes=1) + b
+          W = tf.Variable(W,dtype=tf.float32)
+          b = tf.Variable(b,dtype=tf.float32)
+          
+      logits = tf.tensordot(hiddens,W,axes=1) + b
       self.global_step = tf.train.get_or_create_global_step()    
       y_as_list =tf.reshape(y, [-1, self.bits]) #shape is flattened_tensor x bits
       vars_   = tf.trainable_variables() 
@@ -290,7 +263,7 @@ class FlipFlop:
       # lossL2 = tf.add_n([ tf.nn.l2_loss(v) for v in vars_ if 'b' not in v.name ]) * self.l2_loss
       lossL2 = tf.nn.l2_loss(W)* self.l2_loss
 
-      losses = tf.squared_difference(logits, y_as_list) + lossL2
+      losses = tf.squared_difference(logits, y) + lossL2
       total_loss = tf.reduce_mean(losses)
 
       train_op = self.setup_optimizer(total_loss)
@@ -298,7 +271,6 @@ class FlipFlop:
       return {'losses':total_loss, 
               'train_step':train_op, 
               'hiddens':rnn_outputs,
-              'finalstate':final_state , 
               'X':x, 
               'Y':y, 
               'predict':logits, 
@@ -310,91 +282,38 @@ class FlipFlop:
     def get_path_for_saving(self):
 
       name = str(self.c_type)+'_hps_states_'+str(self.state_size)+'_l2_'+str(self.l2_loss)+'_'+str(self.activation) 
-      dir_name = os.getcwd()+'/trained/'+name
-      if not os.path.exists(os.path.dirname(dir_name)):
-          os.makedirs(os.path.dirname(dir_name))
-          self.path = dir_name 
-      else: 
-          self.path = dir_name 
-        
-
-    def setup_tensorboard(self, dict):
-
-      dir_name = self.path+'/tf_logs/'
+      dir_name = os.getcwd()+'/trained'+str(self.seed)+'/'+name
       try:
         if not os.path.exists(os.path.dirname(dir_name)):
           os.makedirs(os.path.dirname(dir_name))
-      
-          self.logdir =  dir_name
-      except:
-          self.logdir =  dir_name
-
-      tf.summary.scalar("loss",dict['losses'])
-      self.merged_summary_op = tf.summary.merge_all()
+        self.path = dir_name 
+      except: 
+        self.path = dir_name 
+        
 
 
-    def setup_mpi_horovod(self):
-
+    def train_network(self, n_iteration, verbose=True, save=True):
+ 
       hvd.init()
 
       config = tf.ConfigProto()
       config.gpu_options.allow_growth = True
       config.gpu_options.visible_device_list = str(hvd.local_rank())
-
-      if not hvd.mpi_threads_supported():
-        raise MpiInitError(
-            'MPI multi-threading is not supported. Horovod cannot work with mpi4py'
-            'in this case. Please enable MPI multi-threading and try again.'
-        )
-
-      mpi4py.rc.initialize = False
-
-
-      # Verify that Horovod and mpi4py are using the same number of ranks
-      from mpi4py import MPI
-
-      if hvd.size() != MPI.COMM_WORLD.Get_size():
-          raise MpiInitError('Mismatch in hvd.size() and MPI.COMM_WORLD size.'
-              f' No. of ranks in Horovod: {hvd.size()}.'
-              f' No. of ranks in mpi4py: {MPI.COMM_WORLD.Get_size()}'
-          )
-      return config
-    
-    def get_filenames(self, path):
-
-      absolute_path = os.path.join(os.path.abspath(f'{path}'))
-
-      return os.listdir(absolute_path)
-
-    def get_data(self, path, filenames):
-      arrays = [np.load(os.path.join(path, f)) for f in filenames]
-      return np.concatenate(arrays)
-
-    def loaddata(self):
-      dist_decorator = DataDistributor(mpi_comm=mpi4py.MPI.COMM_WORLD, shutdown_on_error=True)
-  
-      get_rank_local_filenames = dist_decorator(self.get_filenames)
-
-      datapath = os.getcwd()+'/data_'+str(self.seed)
-      filenames = get_rank_local_filenames(datapath)
-      self.data = self.get_data(datapath, filenames)
-
-
-    def train_network(self, verbose=True, save=True):
       t1 = dt.datetime.now()
-      config = self.setup_mpi_horovod()
+      # config = self.setup_mpi_horovod()
       self.is_root = hvd.rank() == 0
-
       act = self.setup_model()
 
-      self.loaddata()
+      # self.loaddata()
 
 
-      epochs = 0
+      # epochs = 0
       training_loss = 0
       hidden = []
-      num_steps = len(self.data)#//hvd.size()+1
-      if self.is_root: print('data loaded with size ',num_steps)
+      num_steps = n_iteration//hvd.size()
+      epochs = 2
+
+      # if self.is_root: print('data loaded with size ',num_steps)
 
       hooks = [hvd.BroadcastGlobalVariablesHook(0),
 
@@ -404,79 +323,70 @@ class FlipFlop:
                                           'loss': act['losses']},
                                  every_n_iter=10) ]
       self.get_path_for_saving()
-      self.setup_tensorboard(act)
       if self.is_root:
         print(self.path)
 
       checkpoint_dir = self.path if hvd.rank() == 0 else None
       with tf.train.MonitoredTrainingSession(checkpoint_dir=checkpoint_dir,
                                                hooks=hooks,
-                                               config=config) as sess:
+                                               config=config,
+                                               summary_dir = self.path+'/tf_logs/') as sess:
         self.sess = sess
 
-        summary_writer = tf.summary.FileWriter(self.logdir, graph=tf.get_default_graph())
-
-        training_losses = []
-        # num_steps = len(data)//hvd.size()+1
+        # summary_writer = tf.summary.FileWriter(self.logdir, graph=tf.get_default_graph())
         i = 0
+        training_losses = []
+        iteration = 0
         if self.is_root: print('Training statrted with hps ', self.hps)
+        # for i in range(epochs):
         while not self.sess.should_stop():
           if self.opt == 'norm' or self.opt == 'momentum' :
-            ground_truth = self.data[i]['outputs']  
-            tr_losses, training_step_, training_state, outputs, predict , summary= \
+            data = self.flip_flop()
+            ground_truth = data['outputs']  
+            tr_losses, training_step_, outputs, predict = \
                         self.sess.run([act['losses'],
                                       act['train_step'],
-                                      act['finalstate'],
                                       act['hiddens'],
-                                      act['predict'], 
-                                      self.merged_summary_op],
-                                      feed_dict={act['X']:self.data[i]['inputs'], 
-                                                act['Y']:self.data[i]['outputs'],
-                                                })
-          # if tr_losses==np.nan or tr_losses ==np.inf:
-          #   raise "gra"
-          # elif self.opt == 'adam':
-          #   ground_truth = self.data[i]['outputs']  
-          #   tr_losses, training_step_, training_state, outputs, predict , summary , ev_grad_global_norm= \
-          #               self.sess.run([act['losses'],
-          #                             act['train_step'],
-          #                             act['finalstate'],
-          #                             act['hiddens'],
-          #                             act['predict'], 
-          #                             self.merged_summary_op,
-          #                             self.grad_global_norm],
-          #                             feed_dict={act['X']:self.data[i]['inputs'], 
-          #                                       act['Y']:self.data[i]['outputs'],
-          #                                       self.learning_rate:self.adaptive_learning_rate(),
-          #                                       self.grad_norm_clip_val:self.adaptive_grad_norm_clip()
-          #                                       })            
+                                      act['predict']],
+                                      feed_dict={act['X']:data['inputs'], 
+                                                act['Y']:data['outputs']
+                                                })       
           training_loss += tr_losses
 
-          # self.sess.run(self.global_step)
-          if self.is_root:
-            summary_writer.add_summary(summary, epochs)
-          i +=1
+          # if self.is_root:
+          #   summary_writer.add_summary(summary, iteration)
+          
+          if iteration%num_steps==0:
+            i=0
+          else:
+            i+=1
+
           if self.is_root and verbose:
-              print("Average training loss for ITERATION", epochs, ":", tr_losses)
+            if iteration%100==0:
+              # ep_100 = training_loss/100.0
+              print("ITERATION  {iter} epoch {epoch} loss {loss} ".format(iter=iteration,loss=tr_losses,epoch=iteration//num_steps))
+            # training_loss = 0
           training_losses.append(training_loss)
-          training_loss = 0
-          # if epochs%1000:
-          #   time_elapsed = time.time() - time_1
-          #   print('Time after 1000 iteration',time_elapsed)
-          #   time = time.time()
-          if epochs == 0:
+            # if ep_100<0.1:
+            #   break
+
+
+          if iteration == 0:
             hidden.append(outputs)
-          epochs +=1
-        # self.adaptive_learning_rate.update(tr_losses)
-        # self.adaptive_grad_norm_clip.update(ev_grad_global_norm)
+          iteration +=1
+
+          # if self.is_root:
+          #   validation_data = self.flip_flop()
+          #   sess = tf.Session(config = config)
+          #   tr_losses= self.sess.run([act['losses']],feed_dict={act['X']:validation_data['inputs'], act['Y']:validation_data['outputs']})
+          #   print('Validation loss is ',tr_losses)
+
+
         hidden.append(outputs)
         t2 = (dt.datetime.now()- t1).seconds
-        if self.is_root: print('training finished with time ',t2) 
 
-        # if hvd.rank() == 0 :
-        #   if(save):
-        #     saver.save(self.sess, path)
-      return {'losses':training_losses, 'hidden':hidden, 'predictions':predict, 'truth':ground_truth, 'training':training_state}
+        if self.is_root: print('training finished with time ',t2) 
+      return {'losses':training_losses, 'hidden':hidden, 'predictions':predict, 'truth':ground_truth}
 
     def lstm_hiddens(self, graph):
 
