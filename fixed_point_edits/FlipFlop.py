@@ -340,7 +340,7 @@ class FlipFlop:
         if self.is_root: print('Training statrted with hps ', self.hps)
         # for i in range(epochs):
         while not self.sess.should_stop():
-          if self.opt == 'norm' or self.opt == 'momentum' :
+
             data = self.flip_flop()
             ground_truth = data['outputs']  
             tr_losses, training_step_, outputs, predict = \
