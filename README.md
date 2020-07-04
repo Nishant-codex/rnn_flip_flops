@@ -3,4 +3,4 @@ This repository contains the code for RNNs which are trained for 3 bits flip_flo
 
 #Files needs structuring
 
-#use runfiles.py to run the code
+#use runfiles_edits.py to run the code
