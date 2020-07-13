@@ -349,21 +349,20 @@ def svcca():
 
 def main():
 
-	hps_ = hps_array()
-	for i in range(len(hps_)):
+	# hps_ = hps_array()
+	# for i in range(len(hps_)):
 
-	 	if hps_[i]['arch'] =='LSTM' and hps_[i]['activ'] == 'tanh' and hps_[i]['units'] == 128 and hps_[i]['l2_norm'] ==1e-2:		
+	# 	if hps_[i]['arch'] =='LSTM' and hps_[i]['activ'] == 'tanh' and hps_[i]['units'] == 128 and hps_[i]['l2_norm'] ==1e-2:		
 
-	 		rnn_object = FlipFlop(opt ='momentum',**hps_[i])
+	# 		rnn_object = FlipFlop(opt ='momentum',**hps_[i])
 			
 
-			train_network(rnn_object)
+			# train_network(rnn_object)
 			
-			fixed_points(rnn_object, hps_[i])
-			transition_graph(rnn_object)
+			# fixed_points(rnn_object, hps_[i])
+			# transition_graph(rnn_object)
 
-	MDS()
-        
+	# MDS()
 	svcca()			
 			
 
