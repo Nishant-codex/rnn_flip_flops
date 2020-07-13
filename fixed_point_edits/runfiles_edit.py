@@ -33,6 +33,7 @@ from FixedPointStore import FixedPointStore
 
 import pickle 
 
+import cca_core 
 
 import numpy as np
 
@@ -286,23 +287,84 @@ def plot_fp():
 			plot_batch_idx=range(30),
 		    plot_start_time=10)
 
+def svcca():
+
+	def save_array(svcca_matrix):
+
+	    filename  = os.getcwd()+'/svcca_matrix'+'.p'   
+	    f =  open(filename,'wb')
+	    pickle.dump(svcca_matrix,f)
+	    f.close()
+
+
+	hps1 = hps_array()
+	hps2 = hps_array()
+	svcca_matrix = np.zeros((len(hps1),len(hps1)))
+	m = 0
+
+	for i in range(len(hps1)):
+		for j in range(len(hps2)):
+
+			rnn_object1 = FlipFlop(opt ='momentum',**hps1[i])
+			rnn_object2 = FlipFlop(opt ='momentum',**hps2[j])	
+
+			rnn_object1.get_path_for_saving()
+			path1 =  rnn_object1.path
+			lis1 = rnn_object1.reload_from_checkpoints(path1)
+
+			rnn_object2.get_path_for_saving()
+			path2 =  rnn_object2.path
+			lis2 = rnn_object2.reload_from_checkpoints(path2)
+
+			fps1 = FixedPointSearch(rnn_object1.c_type,
+									lis1['hiddens'],
+									rnn_object1.path, 
+									cell=rnn_object1.graph['cell'],
+									sess=rnn_object1.sess)
+			fps1.sample_states(1000,lis1['hiddens'],rnn_object1.c_type,0.0)
+			if rnn_object1.c_type == 'LSTM':
+				sample1 = fps1.convert_from_lstm_tuples(fps1.sampled_states)
+			else:
+				sample1 = fps1.sampled_states
+
+			fps2 = FixedPointSearch(rnn_object2.c_type,
+									lis2['hiddens'],
+									rnn_object2.path, 
+									cell=rnn_object2.graph['cell'],
+									sess=rnn_object2.sess)
+			fps2.sample_states(1000,lis2['hiddens'],rnn_object2.c_type,0.0)
+			if rnn_object2.c_type == 'LSTM':
+				sample2 = fps2.convert_from_lstm_tuples(fps2.sampled_states)
+			else:
+				sample2 = fps2.sampled_states
+
+			results = cca_core.get_cca_similarity(sample1.T, sample2.T, epsilon=1e-10, verbose=False)
+			mean = np.mean(results["cca_coef1"])
+
+			svcca_matrix[i,j] = mean
+			print('running iter ',m)
+			m+=1
+	save_array(svcca_matrix)
+
+
 def main():
 
 	hps_ = hps_array()
 	for i in range(len(hps_)):
 
-		if hps_[i]['arch'] =='LSTM' and hps_[i]['activ'] == 'tanh' and hps_[i]['units'] == 128 and hps_[i]['l2_norm'] ==1e-2:		
+	 	if hps_[i]['arch'] =='LSTM' and hps_[i]['activ'] == 'tanh' and hps_[i]['units'] == 128 and hps_[i]['l2_norm'] ==1e-2:		
 
-			rnn_object = FlipFlop(opt ='momentum',**hps_[i])
+	 		rnn_object = FlipFlop(opt ='momentum',**hps_[i])
 			
 
-			# train_network(rnn_object)
+			train_network(rnn_object)
 			
-			# fixed_points(rnn_object, hps_[i])
+			fixed_points(rnn_object, hps_[i])
 			transition_graph(rnn_object)
 
 	MDS()
-			
+        
+	svcca()			
 			
 
 if __name__ == "__main__":
