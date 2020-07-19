@@ -216,12 +216,13 @@ class FixedPointSearch:
 
     valid_idx = np.ones((n_batch, n_time), dtype=np.bool)
 
-    trial_idx, time_idx = np.nonzero(valid_idx)
+    (trial_idx, time_idx) = np.nonzero(valid_idx)
 
     min_index = min(len(trial_idx),len(time_idx))
     
     sample_indices = nrand.RandomState(200).randint(0, high = min_index, size = [init_size])
-  
+    trial_idx = trial_idx[sample_indices]
+    time_idx = time_idx[sample_indices]
     states = np.zeros([init_size, n_states])
 
     for i in range(init_size):

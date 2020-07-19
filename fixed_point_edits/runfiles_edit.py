@@ -338,7 +338,7 @@ def svcca():
 			else:
 				sample2 = fps2.sampled_states
 
-			results = cca_core.get_cca_similarity(sample1.T, sample2.T, epsilon=1e-10, verbose=False)
+			results = cca_core.robust_cca_similarity(sample1.T, sample2.T, epsilon=1e-10,compute_dirns=False)
 			mean = np.mean(results["cca_coef1"])
 
 			svcca_matrix[i,j] = mean
