@@ -1,0 +1,6 @@
+model_checkpoint_path: "/p/scratch/jinm60/joshi2/distributed/leaky_rnn/model.ckpt-6325"
+all_model_checkpoint_paths: "/p/scratch/jinm60/joshi2/distributed/leaky_rnn/model.ckpt-2981"
+all_model_checkpoint_paths: "/p/scratch/jinm60/joshi2/distributed/leaky_rnn/model.ckpt-3816"
+all_model_checkpoint_paths: "/p/scratch/jinm60/joshi2/distributed/leaky_rnn/model.ckpt-4652"
+all_model_checkpoint_paths: "/p/scratch/jinm60/joshi2/distributed/leaky_rnn/model.ckpt-5488"
+all_model_checkpoint_paths: "/p/scratch/jinm60/joshi2/distributed/leaky_rnn/model.ckpt-6325"
