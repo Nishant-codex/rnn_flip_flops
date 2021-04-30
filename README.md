@@ -30,3 +30,11 @@ To run discrete LIF network please run the script present in 'LIF_Flip_Flop/LIF_
 
 ### Using notebooks to train single networks
 The notebooks folder containes examples for each network type. This can be run using google colab. 
+
+# Sequential MNIST task
+Discrete RNNs are trained on Sequential mnist task. Two types of MNIST tasks were used:  
+
+1. We provided each image as a sequence of pixels with a definite batch size, batch_sizex784x1
+2. We used the dataset provided by Jong et.al. Please find more about the task and training method [here](https://edwin-de-jong.github.io/blog/isl/incremental-sequence-learning.html). 
+
+The releveant code example can be found in the notebooks folder. 
