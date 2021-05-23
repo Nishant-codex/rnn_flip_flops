@@ -1,6 +1,6 @@
 This is the repository for studying Universality and Individuality across recurrent networks. This works was presented as a master thesis for KTH Royal institute of Technology. 
 
-# RNN Dynamics for Flip Flop task
+# 1. RNN Dynamics for Flip Flop task
 This repository contains the code for studying RNNs which are trained for 3 bits flip_flop tasks. The method of finding the fixed points is based on the work by Golub et. al. 
 
 ```
@@ -31,7 +31,7 @@ To run discrete LIF network please run the script present in 'LIF_Flip_Flop/LIF_
 ### Using notebooks to train single networks
 The notebooks folder containes examples for each network type. This can be run using google colab. 
 
-# Sequential MNIST task
+# 2. Sequential MNIST task
 Discrete RNNs are trained on Sequential MNIST task. Two types of MNIST tasks were used:  
 
 1. We provided each image as a sequence of pixels with a definite batch size, batch_sizex784x1
