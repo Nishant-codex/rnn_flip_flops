@@ -42,8 +42,7 @@ The releveant code example can be found in the notebooks folder.
 Please cite the this work as follows: 
 
 ```
-Joshi, N. (2020). Universality and Individuality in Recurrent Networks extended 
-to Biologically inspired networks (Dissertation). 
+Joshi, N. (2020). Universality and Individuality in Recurrent Networks extended to Biologically inspired networks (Dissertation). 
 Retrieved from http://urn.kb.se/resolve?urn=urn:nbn:se:kth:diva-294208
 
 ```
