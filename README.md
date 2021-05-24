@@ -1,4 +1,4 @@
-This is the repository for studying Universality and Individuality across recurrent networks. This works was presented as a master thesis for KTH Royal institute of Technology. 
+This is the repository for studying Universality and Individuality across recurrent networks. This works was presented as a master thesis for KTH Royal institute of Technology. Here is a [link](http://urn.kb.se/resolve?urn=urn:nbn:se:kth:diva-294208). 
 
 # 1. RNN Dynamics for Flip Flop task
 This repository contains the code for studying RNNs which are trained for 3 bits flip_flop tasks. The method of finding the fixed points is based on the work by Golub et. al. 
@@ -38,3 +38,12 @@ Discrete RNNs are trained on Sequential MNIST task. Two types of MNIST tasks wer
 2. We used the dataset provided by Jong et.al. Please find more about the task and training method [here](https://edwin-de-jong.github.io/blog/isl/incremental-sequence-learning.html). 
 
 The releveant code example can be found in the notebooks folder. 
+
+Please cite the this work as follows: 
+
+```
+Joshi, N. (2020). Universality and Individuality in Recurrent Networks extended 
+to Biologically inspired networks (Dissertation). 
+Retrieved from http://urn.kb.se/resolve?urn=urn:nbn:se:kth:diva-294208
+
+```
