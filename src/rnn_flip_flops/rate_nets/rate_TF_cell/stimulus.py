@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from parameters import *
+from rnn_flip_flops.rate_nets.rate_TF_cell.parameters import *
 
 
 class Stimulus:

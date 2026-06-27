@@ -17,7 +17,7 @@ from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
-import tf_utils
+import rnn_flip_flops.rate_nets.rate_TF_cell.tf_utils as tf_utils
 
 def plot_fps(fps,
 		state_traj=None,

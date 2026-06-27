@@ -1,8 +1,8 @@
 
 import numpy as np
-from parameters import *
+from rnn_flip_flops.rate_nets.rate_TF_cell.parameters import *
 import model
-import model_leaky
+import rnn_flip_flops.rate_nets.rate_TF_cell.model_leaky as model_leaky
 import sys
 import matplotlib.pyplot as plt
 # %matplotlib inline

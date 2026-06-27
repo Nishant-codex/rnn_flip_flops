@@ -2,7 +2,7 @@
 import numpy as np
 from parameters import *
 # import model
-import model_dist
+import rnn_flip_flops.rate_nets.distributed.model_dist as model_dist
 import sys
 import matplotlib.pyplot as plt
 # %matplotlib inline

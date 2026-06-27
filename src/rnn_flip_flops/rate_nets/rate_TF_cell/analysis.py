@@ -3,11 +3,11 @@ Functions used to save model data and to perform analysis
 """
 
 import numpy as np
-from parameters import *
+from rnn_flip_flops.rate_nets.rate_TF_cell.parameters import *
 # from sklearn import svm
 import time
 import pickle
-import stimulus
+import rnn_flip_flops.rate_nets.rate_TF_cell.stimulus as stimulus
 import os
 import copy
 import matplotlib.pyplot as plt

@@ -23,9 +23,9 @@ np.random.seed(700)
 # import mpi4py
 
 # Import utility functions
-from utils import set_gpu
-from utils import restricted_float
-from utils import str2bool
+from rnn_flip_flops.rate_nets.distributed_r_kim.utils import set_gpu
+from rnn_flip_flops.rate_nets.distributed_r_kim.utils import restricted_float
+from rnn_flip_flops.rate_nets.distributed_r_kim.utils import str2bool
 '''
 CONTINUOUS FIRING-RATE RNN CLASS
 '''

@@ -10,7 +10,7 @@ import os
 sys.path.insert(0,os.getcwd())
 import absl
 from tensorflow.python.ops import parallel_for as pfor
-from FixedPointStore import *
+from rnn_flip_flops.rate_nets.distributed_r_kim.FixedPointStore import *
 import tensorflow as tf
 
 # import horovod.tensorflow as hvd
@@ -24,8 +24,8 @@ import numpy.random as nrand
 np.random.seed(0)
 # import numpy as np
 import time
-from AdaptiveGradNormClip import AdaptiveGradNormClip
-from AdaptiveLearningRate import AdaptiveLearningRate
+from rnn_flip_flops.rate_nets.distributed_r_kim.AdaptiveGradNormClip import AdaptiveGradNormClip
+from rnn_flip_flops.rate_nets.distributed_r_kim.AdaptiveLearningRate import AdaptiveLearningRate
 
 class FixedPointSearch:
 
@@ -131,7 +131,8 @@ class FixedPointSearch:
       F = self.convert_from_lstm_tuples(F_rnn)
     else:
       F = F_rnn
-
+    print(x)
+    print(F)
     init = tf.variables_initializer(var_list=[x])
     self.sess.run(init)
     return x, F
@@ -207,35 +208,32 @@ class FixedPointSearch:
 
   def sample_states(self, init_size, state_matrix,c_type, noise):
 
-    if c_type =='LSTM':
-      matrix = self.convert_from_lstm_tuples(state_matrix)
-    else:
       matrix = state_matrix
-    
-    [n_batch, n_time, n_states] = matrix.shape
 
-    valid_idx = np.ones((n_batch, n_time), dtype=np.bool)
+      [n_time, n_batch, n_states] = matrix.shape
+      
+      valid_idx = np.ones((n_batch, n_time), dtype=np.bool)
+      
+      (trial_idx, time_idx) = np.nonzero(valid_idx)
+      
+      min_index = min(len(trial_idx),len(time_idx))
+      
+      sample_indices = nrand.RandomState(200).randint(0, high = min_index, size = [init_size])
+      
+      trial_idx = trial_idx[sample_indices]
+      
+      time_idx = time_idx[sample_indices]
+      
+      states = np.zeros([init_size, n_states])
+      
+      for i in range(init_size):
+        init_idx = trial_idx[i]
+        t_idx = time_idx[i]
+        states[i,:] = matrix[t_idx,init_idx,:]
+      
+      if noise>0.0:
+        states = states + noise*np.random.randn(*states.shape)
 
-    trial_idx, time_idx = np.nonzero(valid_idx)
-
-    min_index = min(len(trial_idx),len(time_idx))
-    
-    sample_indices = nrand.RandomState(200).randint(0, high = min_index, size = [init_size])
-  
-    states = np.zeros([init_size, n_states])
-
-    for i in range(init_size):
-      init_idx = trial_idx[i]
-      t_idx = time_idx[i]
-      states[i,:] = matrix[init_idx,t_idx,:]
-
-    if noise>0.0:
-      states = states + noise*np.random.randn(*states.shape)
-
-    if c_type == 'LSTM':
-      # print('this')
-      self.sampled_states = self.convert_to_lstm_tuples(states)
-    else:
       self.sampled_states = states
 
   def identify_distance_non_outliers(self, fps, initial_states, dist_thresh):

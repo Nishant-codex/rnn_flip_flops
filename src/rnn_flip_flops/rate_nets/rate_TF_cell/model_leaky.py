@@ -1,11 +1,13 @@
 # %tensorflow_version 1.x
-
 import tensorflow as tf
 import numpy as np
-import stimulus
-import analysis
+import rnn_flip_flops.rate_nets.rate_TF_cell.stimulus as stimulus
+import rnn_flip_flops.rate_nets.rate_TF_cell.analysis as analysis
 import pickle
 import time
+import os, sys
+sys.path.insert(0,os.getcwd())
+
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.ops import variable_scope as vs
 from tensorflow.python.ops import array_ops
@@ -15,10 +17,10 @@ from tensorflow.python.ops import nn_ops
 from tensorflow.python.util import nest
 from tensorflow.python.ops import rnn
 from tensorflow.python.ops.rnn_cell_impl import RNNCell
-from FixedPointStore import FixedPointStore
-from FixedPointSearch import FixedPointSearch
-from parameters import par
-import os, sys
+from rnn_flip_flops.rate_nets.rate_TF_cell.FixedPointStore_leaky import FixedPointStore
+from rnn_flip_flops.rate_nets.rate_TF_cell.FixedPointSearch_leaky import FixedPointSearch
+from rnn_flip_flops.rate_nets.rate_TF_cell.parameters import par
+import matplotlib.pyplot as plt 
 np.random.seed(400)
 # Ignore "use compiled version of TensorFlow" errors
 os.environ['TF_CPP_MIN_LOG_LEVEL']='2'
@@ -150,11 +152,9 @@ class LeakyRNNCell(RNNCell):
         inputs = math_ops.matmul(inputs, self._kernel[:par['n_input'],:])
 
         if self._w_rec_init == 'exc_inh':
-            print('exc_inh')
-            rnn = tf.matmul(state, tf.constant(par['EI_matrix'])@ tf.nn.relu(self._kernel[par['n_input']:,:])) 
-          
+          rnn = math_ops.matmul(state,(par['EI_matrix']@ tf.math.abs(self._kernel[par['n_input']:,:])))
         else:
-            rnn = math_ops.matmul(state, self._kernel[par['n_input']:,:] )
+          rnn = math_ops.matmul(state,self._kernel[par['n_input']:,:] )
         # rnn = math_ops.matmul(state, tf.nn.relu(self._kernel[par['n_input']:,:]))
         gate_inputs = math_ops.add(inputs,rnn)
         gate_inputs = nn_ops.bias_add(gate_inputs, self._bias)
@@ -180,7 +180,7 @@ class Model:
         self.global_step = tf.train.get_or_create_global_step()
 
         self.initialize_weights()
-        self.saver = None
+        self.saver = tf.train.Saver()
 
 
         self.run_dyn_rnn()
@@ -190,7 +190,6 @@ class Model:
     def initialize_weights(self):
         # Initialize all weights. biases, and initial values
         self.var_dict = {}
-
         # all keys in par with a suffix of '0' are initial values of trainable variables
         a = ['w_out0','b_out0']
         for k, v in par.items():
@@ -230,8 +229,8 @@ class Model:
                     # + par['weight_cost']*self.weight_loss
 
         # opt = tf.train.AdamOptimizer(learning_rate = par['learning_rate'])
-        decay = tf.train.exponential_decay(par['learning_rate'],self.global_step,1,0.5)
-        opt = tf.train.MomentumOptimizer(par['learning_rate'],0.9,use_nesterov=False)
+        decay = tf.train.exponential_decay(par['learning_rate'],self.global_step,128,0.9)
+        opt = tf.train.MomentumOptimizer(decay,0.9,use_nesterov=False)
 
         grads_and_vars = opt.compute_gradients(self.loss,var_list)
         capped_gvs = []
@@ -247,10 +246,15 @@ class Model:
 
     def save(self):
         """Save the model."""
+
         sess = tf.get_default_session()
-        save_path = os.path.join(os.getcwd(), 'model.ckpt')
+        path = os.getcwd()+'/model'
+        os.mkdir(path)
+        save_path = os.path.join(path, 'model.ckpt')
         self.saver.save(sess, save_path)
         print("Model saved in file: %s" % save_path)
+
+        
 def main(gpu_id = None):
 
     if gpu_id is not None:
@@ -261,7 +265,6 @@ def main(gpu_id = None):
 
     # Reset TensorFlow before running anything
     tf.reset_default_graph()
-
     #Create the stimulus class to generate trial paramaters and input activity
     stim = stimulus.Stimulus()
 
@@ -283,9 +286,9 @@ def main(gpu_id = None):
         model_performance = {'accuracy': [], 'loss': [], 'perf_loss': [], 'spike_loss': [], \
             'weight_loss': [], 'iteration': []}
 
-
+        loss_ = []
         for i in range(par['num_iterations']):
-
+        # while True:
             # generate batch of batch_train_size
             trial_info = stim.generate_trial(set_rule = None)
             # print(trial_info['neural_input'].shape)
@@ -305,12 +308,18 @@ def main(gpu_id = None):
             if i%par['iters_between_outputs']==0:
                 # stim.plot_neural_input(trial_info)
                 print_results(i, perf_loss, spike_loss, h, accuracy)
-            if perf_loss<0.004:
-              break
+            loss_.append(perf_loss)
+            # if perf_loss<0.004:
+            #   break
+            sess.run(model.global_step)
         # Save model and results
         weights = sess.run(model.var_dict)
         path = os.getcwd()
-        # unique, all_fps = fixed_points(h,model.cell,sess)
+        # model.save()
+        plt.plot(loss_)
+        plt.show()
+        unique, all_fps = fixed_points(h,model.cell,sess)
+
         return(trial_info['desired_output'], y,trial_info['neural_input'],h)
         save_results(model_performance, weights)
 
@@ -320,7 +329,7 @@ def fixed_points(hid,cell,sess):
   def save_hidden_states(hid):
 
       # print(path) 
-      dir_name = os.getcwd()+'/fps_saver/' 
+      dir_name = os.getcwd()+'/fps_saver_crnn/' 
       try:
         if not os.path.exists(os.path.dirname(dir_name)):
           os.makedirs(os.path.dirname(dir_name))
@@ -335,14 +344,25 @@ def fixed_points(hid,cell,sess):
   fps = FixedPointSearch(
               'rate',
               hid,
-              '/content', 
+              os.getcwd()+'/fps_saver_crnn/', 
               cell=cell,
               sess = sess
               )
-  fps.sample_states(600,hid,'rate',0.9)
-  fps.rerun_q_outliers = False
+  fps.sample_states(1000,hid,'rate',0.5)
+  # fps.rerun_q_outliers = False
   unique, all_fps = fps.find_fixed_points(inputs, save = True)
   return unique, all_fps 
+  def reload_from_checkpoints(self, chkpt_):
+
+    # self.is_root = hvd.rank() == 0
+    chkpt = tf.train.get_checkpoint_state(chkpt_)
+    
+    saver = tf.train.Saver()
+
+
+    sess = tf.Session()
+    saver.restore(sess, chkpt.model_checkpoint_path)
+
 def save_results(model_performance, weights,  save_fn = None):
 
     results = {'weights': weights, 'parameters': par}
@@ -381,54 +401,3 @@ def print_important_params():
         'delay_time', 'connection_prob','synapse_config','tau_slow','tau_fast']
     for k in important_params:
         print(k, ': ', par[k])
-import numpy as np
-from parameters import *
-import model
-import model_leaky
-import sys
-import matplotlib.pyplot as plt
-# %matplotlib inline
-
-def try_model(gpu_id):
-    try:
-        # Run model
-        h,y,t,x= model.main(gpu_id)
-    except KeyboardInterrupt:
-        quit('Quit by KeyboardInterrupt')
-    return h,y,t,x
-try:
-    gpu_id = sys.argv[1]
-    print('Selecting GPU ', gpu_id)
-except:
-    gpu_id = None
-
-
-update_parameters({ 'simulation_reps'       : 0,
-                    'exc_inh_prop'          : .8,
-                    'spike_cost'            : 1e-02,
-                    'batch_size'            : 4,
-                    'dt'                    : 5,
-                    'dist'                  : 'gamma',
-                    'inital'                : 'randgauss',
-                    'shape'                 : 1.,
-                    'scale'                 : 0.1,
-                    'n_hidden'              : 150,
-                    'learning_rate'         : 1e-02,
-                    'membrane_time_constant': 55,
-                    'noise_rnn_sd'          : 0.0,
-                    'noise_in_sd'           : 0.0,
-                    'num_iterations'        : 1,
-                    'spike_regularization'  : 'L2',
-                    'synaptic_config'       : None,
-                    'test_cost_multiplier'  : 1.,
-                    'balance_EI'            : True,
-                    'connection_prob'       : 0.8,
-                    'delay_time'            : 100,
-                    'p_flip'                : 0.02,
-                    'input_len'             : 10,
-                    'savedir'               : './savedir/'})
-
-task_list = ['Flip']
-
-update_parameters({'trial_type': task_list[0]})
-h,y,t,x= main(None)

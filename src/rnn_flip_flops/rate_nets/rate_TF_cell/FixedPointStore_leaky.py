@@ -14,7 +14,7 @@ import numpy as np
 import os
 import sys 
 
-# sys.path.insert(0,'/home/joshi/fixed_point_edits')
+sys.path.insert(0,'/home/joshi/fixed_point_edits')
 import os
 import absl
 from tensorflow.python.ops import parallel_for as pfor
@@ -29,8 +29,8 @@ import pickle
 np.random.seed(400)
 # import numpy as np
 import time
-from AdaptiveGradNormClip import AdaptiveGradNormClip
-from AdaptiveLearningRate import AdaptiveLearningRate
+from rnn_flip_flops.rate_nets.rate_TF_cell.AdaptiveGradNormClip import AdaptiveGradNormClip
+from rnn_flip_flops.rate_nets.rate_TF_cell.AdaptiveLearningRate import AdaptiveLearningRate
 
 class FixedPointStore:
 
@@ -52,7 +52,7 @@ class FixedPointStore:
                dq=None,
                dFdu = None,
                n_iters=None,
-               tol_unique=1e-2,
+               tol_unique=1e-3,
                alloc_zeros = True,
                J_xstar = None
             ):
@@ -392,7 +392,7 @@ class FixedPointStore:
 
   def save(self, path, string):
     # print(path)
-    dir_name = path+'/fps_saver_300/' 
+    dir_name = path+'/fps_saver/' 
     if not os.path.exists(os.path.dirname(dir_name)):
       os.makedirs(os.path.dirname(dir_name))
     

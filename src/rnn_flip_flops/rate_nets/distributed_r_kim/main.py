@@ -27,17 +27,17 @@ from hpc4neuro.distribution import DataDistributor
 import mpi4py
 
 # Import utility functions
-from utils import set_gpu
-from utils import restricted_float
-from utils import str2bool
+from rnn_flip_flops.rate_nets.distributed_r_kim.utils import set_gpu
+from rnn_flip_flops.rate_nets.distributed_r_kim.utils import restricted_float
+from rnn_flip_flops.rate_nets.distributed_r_kim.utils import str2bool
 
 #import Fixedpoint Finder
-from FixedPointStore import FixedPointStore
-from FixedPointSearch import FixedPointSearch 
+from rnn_flip_flops.rate_nets.distributed_r_kim.FixedPointStore import FixedPointStore
+from rnn_flip_flops.rate_nets.distributed_r_kim.FixedPointSearch import FixedPointSearch 
 # Import the continuous rate model
-from model import FR_RNN_dale
-from model import find_fps
-from model import cell_rate
+from rnn_flip_flops.rate_nets.distributed_r_kim.model import FR_RNN_dale
+from rnn_flip_flops.rate_nets.distributed_r_kim.model import find_fps
+from rnn_flip_flops.rate_nets.distributed_r_kim.model import cell_rate
 
 # Import the tasks
 # from model import generate_input_stim_xor
@@ -48,9 +48,9 @@ from model import cell_rate
 
 # from model import generate_input_stim_go_nogo
 # from model import generate_target_continuous_go_nogo
-from model import generate_flip_flop_trial
-from model import construct_tf
-from model import loss_op
+from rnn_flip_flops.rate_nets.distributed_r_kim.model import generate_flip_flop_trial
+from rnn_flip_flops.rate_nets.distributed_r_kim.model import construct_tf
+from rnn_flip_flops.rate_nets.distributed_r_kim.model import loss_op
 
 # Parse input arguments
 parser = argparse.ArgumentParser(description='Training rate RNNs')
